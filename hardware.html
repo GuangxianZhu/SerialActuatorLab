@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>执行器 · 接线与软硬件分工</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#09101a;color:#e3edf7;font:16px/1.65 system-ui,sans-serif}main{max-width:1240px;margin:auto;padding:40px 32px}h1{font-size:34px;margin:0}h2{margin:0 0 20px;font-size:23px}p{color:#b0c1d3}section{background:#111d2c;border:1px solid #233449;border-radius:16px;margin:24px 0;padding:28px}.pill{display:inline-block;border:1px solid #327060;color:#75e6bb;padding:5px 14px;border-radius:30px;margin-bottom:15px}.note{border-left:4px solid #efa74c;padding:12px 18px;background:#322919;color:#f4d3a6}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid #2a3b4d}th{color:#78daed}code{color:#7fe5c4}svg{width:100%;height:auto}svg text{font:16px system-ui,sans-serif;fill:#d9e8f5}.small{font-size:13px;fill:#9cb1c5}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.tx{color:#f5ad53}.rx{color:#74e2af}.dir{color:#b79aff}a{color:#70d7ed}li{margin:8px 0}@media(max-width:700px){main{padding:20px 12px}section{padding:18px}.grid{grid-template-columns:1fr}}@media print{body{background:white;color:#182a3a}section{break-inside:avoid}}
+</style>
+<main><span class="pill">配套教学图 · 通用信号名，不对应具体板型 · 转换器型号待确认</span>
+<h1>电脑输入 packet，MCU 负责收发切换</h1>
+<p>电机 ← 三态缓冲器 ← 电平转换器 ← MCU ← 电脑。回复沿接收通道反向返回。电脑无需控制 DIR，板端桥接固件负责。</p>
+<section><h2>全部信号线与电源</h2>
+<p>教学假设：MCU I/O 与三态缓冲器供电均为 3.3V，电平转换器旁路；执行器使用外部 5V。真实电压、接口引脚与电源容量需按所选器件适配。</p>
+<svg viewBox="0 0 1150 570" role="img" aria-label="电脑、MCU、电平转换、三态缓冲器与执行器的USB、TX、RX、DIR、DATA、电源和共地接线图">
+<defs><marker id="orange" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0L8 4L0 8" fill="#f5ad53"/></marker><marker id="green" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0L8 4L0 8" fill="#74e2af"/></marker><marker id="violet" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#b79aff"/></marker></defs>
+<g fill="#162a3d" stroke="#35516a" stroke-width="2"><rect x="15" y="160" width="145" height="160" rx="12"/><rect x="230" y="140" width="180" height="230" rx="12"/><rect x="490" y="140" width="165" height="230" rx="12"/><rect x="750" y="140" width="185" height="230" rx="12"/><rect x="1030" y="190" width="105" height="180" rx="12"/></g>
+<text x="45" y="197">电脑 PC</text><text x="30" y="225" class="small">输入 HEX packet</text><text x="30" y="254" class="small">显示 Status</text>
+<text x="273" y="176">MCU</text><text x="245" y="205" class="small">UART0 ↔ USB 串口桥 VCOM</text><text x="250" y="233">UART1 TX</text><text x="250" y="252" class="small">ACT_TX · 示例信号</text><text x="250" y="282">UART1 RX</text><text x="250" y="301" class="small">ACT_RX · 示例信号</text><text x="250" y="329">GPIO DIR</text><text x="250" y="348" class="small">DIR_GPIO · 示例信号</text>
+<text x="509" y="176">Level shifter</text><text x="508" y="202" class="small">默认旁路；型号待定</text><text x="508" y="233" class="small">TX 输出方向 →</text><text x="508" y="282" class="small">← RX 输入方向</text><text x="508" y="329" class="small">DIR 输出方向 →</text>
+<text x="766" y="175">三态缓冲器</text><text x="765" y="205" class="small">5脚 A2 → 3脚 Y2</text><text x="765" y="235" class="small">发送缓冲器</text><text x="765" y="277" class="small">2脚 A1 → 6脚 Y1</text><text x="765" y="305" class="small">接收缓冲器</text><text x="765" y="349" class="small">1脚 /OE1 + 7脚 OE2</text>
+<text x="1041" y="223">执行器</text><text x="1041" y="257" class="small">3 DATA</text><text x="1041" y="307" class="small">2 VDD</text><text x="1041" y="347" class="small">1 GND</text>
+<path d="M160 245H230" fill="none" stroke="#62d6ed" stroke-width="4"/><text x="171" y="230" class="small">USB 双向</text>
+<g fill="none" stroke-width="3"><path d="M410 235H490M655 235H750" stroke="#f5ad53" marker-end="url(#orange)"/><path d="M750 280H655M490 280H410" stroke="#74e2af" marker-end="url(#green)"/><path d="M410 330H490M655 330H750" stroke="#b79aff" marker-end="url(#violet)"/><path d="M935 235H978V260H1030M935 280H978V260" stroke="#62d6ed"/></g>
+<text x="947" y="220" class="small">单根 DATA</text><text x="438" y="225" class="small">TX</text><text x="438" y="270" class="small">RX</text><text x="428" y="320" class="small">DIR</text>
+<g fill="none" stroke="#8ca1b5" stroke-width="3"><path d="M88 320V435H1083V370M320 370V435M572 370V435M842 370V435"/></g><text x="450" y="465">GND：电脑接口、开发板、转换器、缓冲器、电机和电源共地</text>
+<rect x="990" y="32" width="145" height="72" rx="10" fill="#42242a"/><text x="1004" y="61">外部稳压 5V</text><text x="1004" y="88" class="small">容量按实物规格选择</text><path d="M1095 104V304H1135" fill="none" stroke="#f77782" stroke-width="3"/><path d="M1010 104H960V435" fill="none" stroke="#8ca1b5" stroke-width="2"/>
+<rect x="440" y="25" width="330" height="70" rx="10" fill="#20354a"/><text x="465" y="54">板上 3.3V 逻辑电源（供接口）</text><text x="465" y="80" class="small">与 MCU 的 I/O 电源域一致；不是电机电源</text>
+<g fill="none" stroke="#7cb0d6" stroke-width="2"><path d="M475 95V115H320V140M573 95V140M740 95V115H842V140"/></g><text x="788" y="131" class="small">8脚 VCC</text>
+<text x="30" y="510">辅助元件：8脚 VCC 与 4脚 GND 间 0.1µF 去耦；DIR 用约10kΩ 下拉，默认接收。</text>
+<text x="30" y="541">DATA、RX 可按接口设计设置约10kΩ 上拉，但本 3.3V 方案上拉到 3.3V。电机 VDD 仍接 5V。</text>
+</svg>
+<div class="note">这是信号连接示意，不是已验证的 PCB 原理图；图中缓冲器与连接器脚号只适用于本教学示例。引脚名称是通用占位名（见下表），转换器供电和型号尚未确定。不得将 5V 电机电源接到 MCU 的 3.3V I/O。</div>
+</section>
+<section><h2>通用信号分工（需自行适配硬件）</h2>
+<table><tr><th>信号</th><th>MCU</th><th>板上位置</th><th>接到</th></tr>
+<tr><td>电脑串口</td><td>UART0 RX=HOST_RX / TX=HOST_TX</td><td>板内接 USB 串口桥</td><td>USB 虚拟串口桥 RX/TX（按实际板型配置）</td></tr>
+<tr><td class="tx">电机 TX</td><td>UART1 TX ACT_TX</td><td>按板型定义</td><td>三态缓冲器 5 脚 A2</td></tr>
+<tr><td class="rx">电机 RX</td><td>UART1 RX ACT_RX</td><td>按板型定义</td><td>三态缓冲器 6 脚 Y1</td></tr>
+<tr><td class="dir">DIR</td><td>GPIO DIR_GPIO</td><td>按板型定义</td><td>三态缓冲器 1 脚 /OE1 和 7 脚 OE2（两脚接在一起）</td></tr></table>
+<p>全部引脚名称均为教学信号名，实物引脚由你的硬件适配层定义。</p></section>
+<section><h2>一个 GPIO 同时控制两个缓冲器</h2>
+<p><b>OE = Output Enable（输出使能）</b>，就是缓冲器的“门”。7 脚 OE2 是<b>高电平</b>开门；1 脚 /OE1 名字前带“/”，是<b>低电平</b>开门。两个脚接同一根 DIR，所以 DIR 一变，两扇门总是一开一关。</p>
+<table><tr><th>DIR</th><th>1脚 /OE1（低有效）</th><th>7脚 OE2（高有效）</th><th>结果</th></tr><tr><td>1 / 高</td><td>高 → 接收门关</td><td>高 → 发送门开</td><td class="tx">MCU TX → DATA → 电机</td></tr><tr><td>0 / 低</td><td>低 → 接收门开</td><td>低 → 发送门关（高阻）</td><td class="rx">电机 DATA → MCU RX</td></tr></table>
+<p>“高阻”表示发送输出像拔掉插头一样松开数据线，既不输出 1 也不输出 0。芯片本身不认识 Ping、不计算 CRC、不知道什么时候发完。MCU 固件负责设置 DIR。</p>
+<svg viewBox="0 0 1100 200" role="img" aria-label="先DIR高电平发完整指令，然后发送完成后DIR低电平接收状态包的时序图">
+<text x="10" y="45">DIR</text><path d="M90 70H170V25H565V70H1070" fill="none" stroke="#b79aff" stroke-width="4"/><text x="235" y="55" class="small">1：电脑指令发送中</text><text x="650" y="53" class="small">0：高阻，等待 / 接收回复</text>
+<text x="10" y="120">DATA</text><rect x="180" y="88" width="370" height="44" rx="5" fill="#744d24"/><text x="226" y="117">Instruction Packet + 最后停止位</text><rect x="675" y="88" width="310" height="44" rx="5" fill="#22533f"/><text x="737" y="117">Status Packet</text><path d="M565 75V150" stroke="#e7e9f0" stroke-dasharray="4 4"/><text x="300" y="175" class="small">此处等 TX_COMPLETE=1（最后停止位已出线），再立即把 DIR 拉低</text><text x="695" y="175" class="small">模拟返回延时 500µs</text>
+</svg></section>
+<section><h2>软件和硬件各自做什么</h2><div class="grid"><div><h3>硬件：让电信号可靠到达</h3><ul><li>USB/VCOM：电脑与开发板之间的字节通道。</li><li>MCU：提供 UART TX/RX 和 GPIO DIR。</li><li>Level shifter：匹配电平，不能替代 DIR 控制。</li><li>三态缓冲器：根据 DIR 开关发送/接收通道。</li><li>执行器：收指令、执行动作、生成回复。</li><li>电源与 GND：电机 5V、接口 3.3V，共同参考地。</li></ul></div><div><h3>软件：决定字节与切换时机</h3><ul><li>电脑程序：输入或生成包，校验与显示。</li><li>MCU 固件：收齐完整 Instruction Packet。</li><li>固件：DIR=1，UART 发送，等 TX_COMPLETE（不是 FIFO_EMPTY），DIR=0。源码见 firmware/main.c。</li><li>固件：接收原始 Status，再转发回电脑。</li><li>电机内置固件：检查 ID/CRC，读取或写入控制表。</li><li>本演示程序：模拟上述过程，不操作真实接口。</li></ul></div></div></section>
+<section><h2>为何不能只按示意图判断电平兼容？</h2><p>教学假设：执行器回复高电平为 3.3V；若缓冲器在 5V 供电时的输入高电平门限为 0.7×VCC，则需要至少 3.5V。此时 3.3V 回复可能无法正确识别。这仅是门限算例，各器件的供电范围、输入门限与耐压需要按实际规格核对。</p><p>只在 MCU 与三态芯片之间加入 3.3V/5V level shifter，不能自动解决电机 DATA 到缓冲器 A1 的门限。因此模拟默认用 3.3V 缓冲器；若必须采用 5V 方案，需要重新核对电机侧转换电路与门限。</p></section>
+<section><h2>通信成功怎么判断？</h2><ol><li>先 Ping：收到了 ID 正确、Length 正确、CRC 正确的 Status Packet。</li><li>Write：检查 Error=0，说明写操作被接受。</li><li>Read Present Position：检查位置是否达到目标。Write 成功不等于动作已完成。</li><li>Write 没有回复：也可能是 Status Return Level=0/1，而不是线路故障。Ping 不受该设置影响。</li></ol><p>原始包结构：<code>FF FF FD 00 | ID | Length_L Length_H | Instruction | Parameters | CRC_L CRC_H</code>。Status 的 Instruction 为 <code>55</code>，后面增加 Error 字节。</p></section>
+
+</main></html>
