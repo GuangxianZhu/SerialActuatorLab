@@ -4,6 +4,7 @@
 每一步高亮的代码行由源码里的 [01]~[12] 注释决定，改代码后演示会跟着变。
 """
 import argparse
+import copy
 import json
 import math
 import os
@@ -193,6 +194,14 @@ MICRO_CPU = {'01a': 'board_init()', '02a': '空等 RX', '02b': '空等 RX', '02c
              '03c': 'return n', '04a': '清空 RX FIFO', '04b': 'gpio_write_dir(1)',
              '05a': '查 TX_FULL', '05b': 'UART_WRITE', '05c': '继续写 FIFO', '05d': '继续写 FIFO',
              '10a': '等回包（带超时）', '11a': '查 TX_FULL'}
+
+# 每一步发生在哪个部分：(主角, 经过的部分)。细节格都在 MCU 里。
+PARTS = [('pc', '电脑'), ('mcu', 'MCU'), ('ls', '电平转换'), ('buf', '三态缓冲器'), ('motor', '执行器')]
+PART_NAME = dict(PARTS)
+WHERE = {1: ('pc', ['pc']), 2: ('mcu', ['pc', 'mcu']), 3: ('mcu', ['mcu']),
+         4: ('mcu', ['mcu', 'ls', 'buf']), 5: ('mcu', ['mcu', 'ls', 'buf', 'motor']), 6: ('mcu', ['mcu']),
+         7: ('mcu', ['mcu', 'ls', 'buf']), 8: ('motor', ['motor']), 9: ('motor', ['motor', 'buf']),
+         10: ('mcu', ['buf', 'ls', 'mcu']), 11: ('mcu', ['mcu', 'pc']), 12: ('pc', ['pc'])}
 
 # 新手版讲解：同一个比喻贯穿全程。MCU = 一间收发室：办事员（CPU）、两个收发窗口（UART）、
 # 排队传送带（FIFO）、笔记本（SRAM）。电机那根 DATA 线 = 对讲机：按住说话键（DIR=1）才能说，松开（DIR=0）才能听。
@@ -508,6 +517,7 @@ class Demo(ShowBase):
         self.refresh_motor()
         self.set_preset('ping')
         self.accept('space', self.space_step)
+        self.accept('backspace', self.space_back)
         self.accept('arrow_left', self.rotate_view, [-8])
         self.accept('arrow_right', self.rotate_view, [8])
         self.accept('escape', self.userExit)
@@ -527,6 +537,10 @@ class Demo(ShowBase):
     def space_step(self):
         if not self.raw_entry.guiItem.getFocus():
             self.next_step()
+
+    def space_back(self):
+        if not self.raw_entry.guiItem.getFocus():
+            self.prev_step()
 
     def text(self, value, x, y, size=17, color=WHITE, wrap=None, parent=None, align=None):
         node = TextNode('ui-text')
@@ -621,6 +635,7 @@ class Demo(ShowBase):
         self.wires[name] = np
 
     def build_scene(self):
+        self.part_nodes, self.part_labels, self.part_x = {}, {}, {}
         x, y, w, h = VIEW
         dr = self.camNode.getDisplayRegion(0)
         dr.setDimensions(x / W, (x + w) / W, 1 - (y + h) / H, 1 - y / H)
@@ -650,13 +665,16 @@ class Demo(ShowBase):
                 ('ls', -.6, '电平转换', '默认旁路', (.42,.30,.15,1)),
                 ('buf', 3.4, '三态缓冲器', '三态缓冲器', (0.296,0.288,0.268,1)),
                 ('motor', 8.1, '执行器', '电机', (0.372,0.361,0.335,1))]:
-            box(self.render, key, (bx, 0, .40), (2.3, 3.0, .6), color)
-            self.world_text(name, (bx, 1.55, 1.55), .46)
+            self.part_nodes[key] = [box(self.render, key, (bx, 0, .40), (2.3, 3.0, .6), color)]
+            self.part_x[key] = bx
+            self.part_labels[key] = self.world_text(name, (bx, 1.55, 1.55), .46)
             self.world_text(sub, (bx, 1.55, 1.10), .30, MUTED)
             if key in ('mcu', 'ls', 'buf'):
-                box(self.render, 'chip', (bx, .1, .78), (1.1, 1.0, .16), (0.149,0.144,0.134,1))
-        box(self.render, 'screen', (-8.7, .9, 1.35), (1.9, .16, 1.3), (0.243,0.235,0.219,1))
-        box(self.render, 'display', (-8.7, .8, 1.40), (1.62, .04, 1.0), (.10,.48,.58,1))
+                self.part_nodes[key].append(box(self.render, 'chip', (bx, .1, .78), (1.1, 1.0, .16), (0.149,0.144,0.134,1)))
+        self.part_nodes['pc'].append(box(self.render, 'screen', (-8.7, .9, 1.35), (1.9, .16, 1.3), (0.243,0.235,0.219,1)))
+        self.part_nodes['pc'].append(box(self.render, 'display', (-8.7, .8, 1.40), (1.62, .04, 1.0), (.10,.48,.58,1)))
+        self.here_marker = self.world_text('▼ 现在在这里', (0, 1.55, 2.15), .34, ACCENT)
+        self.here_marker.hide()
         self.gate_tx = box(self.render, 'gate-tx', (3.4, -1.1, .80), (.9, .38, .14), (0.978,0.950,0.883,1))
         self.gate_rx = box(self.render, 'gate-rx', (3.4, 0, .80), (.9, .38, .14), (0.978,0.950,0.883,1))
         self.gate_tx.setLightOff(); self.gate_rx.setLightOff()
@@ -788,6 +806,15 @@ class Demo(ShowBase):
         self.text('02  硬件', vx+14, vy+30, 19)
         self.text('USB 蓝 · TX 橙 · RX 绿 · DIR 紫 · DATA 青', vx+14, vy+54, 13, MUTED)
         self.text('飞行的方块 = 正在传的字节', vx+vw-14, vy+30, 13, YELLOW, align=TextNode.ARight)
+        self.where_chips = {}
+        self.text('当前位置', vx+14, vy+80, 12, MUTED)
+        for i, (key, name) in enumerate(PARTS):
+            cx0 = vx + 80 + i * 96
+            if i:
+                self.text('→', cx0 - 7, vy+80, 11, DIM, align=TextNode.ACenter)
+            f = DirectFrame(parent=self.pixel2d, frameColor=CARD2, frameSize=(0, 82, -22, 0), pos=(cx0, 0, -(vy+64)))
+            t = self.text(name, cx0 + 41, vy+80, 12, DIM, align=TextNode.ACenter)
+            self.where_chips[key] = (f, t)
         self.dir_badge = self.panel(vx+14, vy+vh-34, vw-28, 30, (.10,.23,.19,1))
         self.dir_badge_text = self.text('', vx+24, vy+vh-13, 15, GREEN)
 
@@ -828,8 +855,9 @@ class Demo(ShowBase):
         self.panel(x, y, w, h)
         self.text('指令包（HEX，可直接修改）', x+14, y+22, 12, MUTED)
         self.raw_entry = self.entry('', x+15, y+44, w-30, 12)
-        bw = (w - 28 - 4*6) / 5
+        bw = (w - 28 - 5*6) / 6
         for i, (label, cmd, col) in enumerate([('载入此包', self.load_packet, (0.345,0.335,0.312,1)),
+                                               ('上一步', self.prev_step, (0.345,0.335,0.312,1)),
                                                ('下一步', self.next_step, PRIMARY),
                                                ('自动播放', self.toggle_play, (.15,.33,.25,1)),
                                                ('重新播放', self.replay, (0.284,0.275,0.256,1)),
@@ -838,7 +866,8 @@ class Demo(ShowBase):
             if label == '自动播放': self.play_btn = btn
         self.easy_btn = self.button('', x+w-14-150, y+6, 150, self.toggle_beginner, size=12, h=24)
         self.paint_beginner()
-        self.step_title = self.text('', x+14, y+122, 17, ACCENT)
+        self.where_text = self.text('', x+14, y+106, 12, ACCENT)
+        self.step_title = self.text('', x+14, y+124, 17, ACCENT)
         self.step_text = self.text('', x+14, y+150, 14, WHITE)
         self.term_text = self.text('', x+14, y+268, 13, YELLOW)
 
@@ -1903,10 +1932,54 @@ class Demo(ShowBase):
         self.refresh_vars()
         self.refresh_flow()
         self.set_step_text('已载入', '点「下一步」或「自动播放」。代码面板会停在 MCU 正在执行的那一行。')
+        self.clicks = 0   # 本包已经按了几次「下一步」，「上一步」靠它重放
+        self.load_snapshot = (copy.deepcopy(self.motor), self.motor_start_angle)
+        self.set_where(None)
         return True
 
     def replay(self):
         self.load_packet()
+
+    def prev_step(self):
+        """后退一格：从载入时的状态重新走到上一格（电机状态也恢复），最后一格照常播放动画。"""
+        target = getattr(self, 'clicks', 0) - 1
+        if not self.packet_bytes or target < 0:
+            return
+        self.seq = None
+        self.auto_btn['text'] = '自动走完整流程'
+        motor, angle = self.load_snapshot
+        self.clear_motion()
+        if not self.load_packet():
+            return
+        self.motor, self.motor_start_angle = copy.deepcopy(motor), angle
+        self.load_snapshot = (copy.deepcopy(motor), angle)
+        for k in range(target):
+            self.next_step()
+            if k < target - 1:
+                self.settle()
+        self.refresh_motor()
+
+    def set_where(self, primary=None, path=()):
+        """3D 场景、位置条、步骤面板三处同时标出「现在在哪个部分」。"""
+        for key, nodes in self.part_nodes.items():
+            on = key in path
+            scale = (1.45, 1.45, 1.45, 1) if key == primary else (1.15, 1.15, 1.15, 1) if on else \
+                    (.45, .45, .45, 1) if primary else (1, 1, 1, 1)
+            for n in nodes:
+                n.setColorScale(*scale)
+            self.part_labels[key].node().setTextColor(*(ACCENT if key == primary else
+                                                       WHITE if on or not primary else DIM))
+            f, t = self.where_chips[key]
+            f['frameColor'] = ACCENT if key == primary else ACCENT_DARK if on else CARD2
+            t.setTextColor(*(INK if key == primary else WHITE if on else DIM))
+        if primary:
+            self.here_marker.setPos(self.part_x[primary], 1.55, 3.0 if primary == 'motor' else 2.25)   # 执行器后面有「外部 5V」标签，抬高避开
+            self.here_marker.show()
+            via = '' if len(path) < 2 else '（经过 ' + ' → '.join(PART_NAME[k] for k in path) + '）'
+            self.where_text.setText(f'当前位置：{PART_NAME[primary]}{via}')
+        else:
+            self.here_marker.hide()
+            self.where_text.setText('')
 
     def reset(self):
         self.clear_motion()
@@ -1937,6 +2010,8 @@ class Demo(ShowBase):
         self.set_preset('ping')
         self.refresh_flow()
         self.set_step_text('已恢复初始状态', '模拟电机：ID 1 · 扭矩关闭 · 180°。')
+        self.clicks = 0
+        self.set_where(None)
 
     def toggle_play(self):
         if self.finished:
@@ -1969,6 +2044,7 @@ class Demo(ShowBase):
         """播放一格 MCU 内部细节：位级视图 + 对应代码行，不推进大步骤。"""
         tag, title, body, term, mode, phase, anim = item
         raw, f = self.packet_bytes, self.fw
+        self.set_where('mcu', ['mcu'])
         b = {'mode': mode, 'phase': phase, 't': anim[1] if anim else 0, 'uart': 'UART0', 'baud': 115200,
              'pin': 'HOST_RX', 'byte': raw[0], 'buf': 'g_buf', 'queue': []}
         if step == 5:
@@ -2032,6 +2108,7 @@ class Demo(ShowBase):
         if self.finished:
             if not self.load_packet(): return
         self.settle()
+        self.clicks += 1
         upcoming = self.step_index + 2
         if self.detail and not self.micro_queue and upcoming in MICRO and upcoming not in self.micro_done:
             self.micro_done.add(upcoming)
@@ -2044,6 +2121,7 @@ class Demo(ShowBase):
         f, m = self.fw, self.mcu
         raw = self.packet_bytes
         labels = [f'{b:02X}' for b in raw]
+        self.set_where(*WHERE[step])
         self.set_lens(LENS_FOR_STEP[step])
         bad_tx = self.active_fault == '只等 FIFO_EMPTY 就切 DIR'
         if step == 1:
@@ -2442,6 +2520,16 @@ def main():
         render(app)
 
     to_step('ping', 2, .7); shot('step02-into-mcu.png')
+    # 上一步：走到第 05 步再退回，应回到第 04 步，DIR 仍为 1
+    to_step('ping', 5); app.prev_step(); app.settle(); render(app)
+    assert app.step_index == 3 and app.dir_level == 1 and app.clicks == 4, (app.step_index, app.clicks)
+    assert app.where_text.getText().startswith('当前位置：MCU'), app.where_text.getText()
+    shot('back-to-step04.png')
+    to_step('ping', 8); app.settle(); render(app)
+    assert app.where_text.getText().startswith('当前位置：执行器')
+    shot('where-motor.png')
+    app.prev_step(); app.prev_step(); app.settle()
+    assert app.step_index == 5
     to_step('ping', 4); app.settle(); render(app); shot('step04-dir-high.png')
     app.set_preset('ping'); app.load_packet()
     for _ in range(5): app.next_step()
@@ -2542,6 +2630,13 @@ def main():
         assert len(app.wrap(body, app.step_text, w, 14).split('\n')) <= 5, f'EASY[{key!r}] 正文太长'
         assert len(app.wrap(term, app.term_text, w, 13).split('\n')) <= 2, f'EASY[{key!r}] 新词太长'
     assert set(EASY) == set(STEPS) | set(expected)
+    # 细化模式下的上一步：走到 02b 再退一格，应停在 02a
+    app.set_preset('ping'); app.load_packet()
+    for _ in range(4): app.next_step()      # 01a、01、02a、02b
+    assert app.events[-1].get('micro') == '02b'
+    app.prev_step(); freeze(app, .6); render(app)
+    assert app.events[-1].get('micro') == '02a' and app.where_text.getText() == '当前位置：MCU'
+    shot('back-micro-02a.png')
     app.toggle_beginner()
     assert not app.events[-1]['detail'].startswith('【比方】')
     app.toggle_beginner()
