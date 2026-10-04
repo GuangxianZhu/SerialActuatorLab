@@ -25,19 +25,23 @@ FIRMWARE = ROOT / 'firmware' / 'main.c'
 FONT_CANDIDATES = ['C:/Windows/Fonts/msyh.ttc',
                    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc']
 
-BG = (0.035, 0.055, 0.085, 1)
-CARD = (0.065, 0.095, 0.14, 1)
-CARD2 = (0.045, 0.07, 0.105, 1)
-WHITE = (0.92, 0.96, 1, 1)
-MUTED = (0.56, 0.66, 0.78, 1)
-DIM = (0.30, 0.37, 0.46, 1)
-CYAN = (0.25, 0.84, 0.98, 1)
-GREEN = (0.30, 0.92, 0.62, 1)
-ORANGE = (1, 0.66, 0.25, 1)
-PURPLE = (0.76, 0.60, 1, 1)
-RED = (1, 0.38, 0.44, 1)
-YELLOW = (1, 0.88, 0.35, 1)
-INK = (0.04, 0.06, 0.09, 1)
+# Claude 深色风格：暖灰底色、米白文字、陶土橙强调色。线路颜色（蓝/橙/绿/紫）有教学含义，只调柔和。
+BG = (0.149, 0.149, 0.141, 1)       # #262624
+CARD = (0.188, 0.188, 0.180, 1)     # #30302E
+CARD2 = (0.122, 0.118, 0.114, 1)    # #1F1E1D
+WHITE = (0.980, 0.976, 0.961, 1)    # #FAF9F5
+MUTED = (0.718, 0.710, 0.663, 1)    # #B7B5A9
+DIM = (0.478, 0.467, 0.435, 1)
+ACCENT = (0.851, 0.467, 0.341, 1)   # #D97757 陶土橙
+ACCENT_DARK = (0.40, 0.22, 0.16, 1)
+PRIMARY = (0.72, 0.38, 0.27, 1)     # 主按钮：陶土橙，压暗一点让米白字更清楚
+CYAN = (0.45, 0.73, 0.88, 1)
+GREEN = (0.50, 0.80, 0.56, 1)
+ORANGE = ACCENT
+PURPLE = (0.70, 0.60, 0.90, 1)
+RED = (0.90, 0.42, 0.40, 1)
+YELLOW = (0.93, 0.78, 0.45, 1)
+INK = (0.12, 0.11, 0.10, 1)
 
 W, H = 1600, 1000
 LEFT = (20, 108, 270, 776)
@@ -542,7 +546,7 @@ class Demo(ShowBase):
         self.widgets.append(frame)
         return frame
 
-    def button(self, label, x, y, w, command, color=(0.13,0.21,0.29,1), size=16, h=36, parent=None):
+    def button(self, label, x, y, w, command, color=(0.284,0.275,0.256,1), size=16, h=36, parent=None):
         button = DirectButton(parent=parent or self.pixel2d, text=label, text_font=self.font,
                               text_scale=size, text_fg=WHITE, text_pos=(w/2, -h/2-size*.36),
                               frameSize=(0, w, -h, 0), frameColor=color,
@@ -553,7 +557,7 @@ class Demo(ShowBase):
     def entry(self, value, x, y, w, size=15):
         entry = DirectEntry(parent=self.pixel2d, initialText=value, text_font=self.font,
                             text_fg=WHITE, scale=size, width=w/size, numLines=1,
-                            pos=(x, 0, -y), frameColor=(0.02,0.035,0.06,1),
+                            pos=(x, 0, -y), frameColor=(0.134,0.130,0.121,1),
                             cursorKeys=True, focus=0)
         self.widgets.append(entry)
         return entry
@@ -561,15 +565,15 @@ class Demo(ShowBase):
     def menu(self, values, x, y, w, callback, size=13):
         menu = DirectOptionMenu(parent=self.pixel2d, items=values, text_font=self.font,
                                 text_scale=size, text_fg=WHITE, text_pos=(9, -21),
-                                frameSize=(0, w, -30, 0), frameColor=(0.12,0.18,0.25,1),
+                                frameSize=(0, w, -30, 0), frameColor=(0.260,0.253,0.235,1),
                                 pos=(x, 0, -y), item_text_font=self.font,
                                 item_text_scale=size, item_text_fg=WHITE,
-                                item_frameColor=(0.12,0.18,0.25,1),
+                                item_frameColor=(0.260,0.253,0.235,1),
                                 item_text_pos=(10, -21), item_frameSize=(0, w, -30, 0),
                                 item_relief=1, item_borderWidth=(0, 0),
                                 popupMarker_scale=9, popupMarker_pos=(w-10, 0, -15),
-                                popupMenu_frameColor=(0.12,0.18,0.25,1),
-                                highlightColor=(0.18,0.30,0.40,1), command=callback)
+                                popupMenu_frameColor=(0.260,0.253,0.235,1),
+                                highlightColor=(0.297,0.289,0.269,1), command=callback)
         self.widgets.append(menu)
         return menu
 
@@ -625,42 +629,42 @@ class Demo(ShowBase):
         self.camLens.setNearFar(.1, 150)
         self.home_view()
         ambient = AmbientLight('ambient')
-        ambient.setColor((.70,.74,.82,1))
+        ambient.setColor((.80,.77,.72,1))
         self.render.setLight(self.render.attachNewNode(ambient))
         light = DirectionalLight('sun')
-        light.setColor((.55,.6,.7,1))
+        light.setColor((.62,.58,.52,1))
         sun = self.render.attachNewNode(light)
         sun.setHpr(-20, -60, 0)
         self.render.setLight(sun)
-        box(self.render, 'table', (0, .3, -.35), (21, 9.6, .25), (.055,.08,.12,1))
+        box(self.render, 'table', (0, .3, -.35), (21, 9.6, .25), (0.174,0.169,0.157,1))
         grid = LineSegs()
-        grid.setColor(.09,.14,.20,1)
+        grid.setColor(0.225,0.218,0.203,1)
         for gx in range(-10, 11):
             grid.moveTo(gx, -4.4, -.21); grid.drawTo(gx, 5, -.21)
         for gy in range(-4, 6):
             grid.moveTo(-10.4, gy, -.21); grid.drawTo(10.4, gy, -.21)
         self.render.attachNewNode(grid.create()).setLightOff()
         for key, bx, name, sub, color in [
-                ('pc', -8.7, '电脑', 'PC', (.13,.24,.35,1)),
+                ('pc', -8.7, '电脑', 'PC', (0.306,0.297,0.276,1)),
                 ('mcu', -4.5, 'MCU', 'UART0 · UART1 · DIR_GPIO', (.10,.40,.31,1)),
                 ('ls', -.6, '电平转换', '默认旁路', (.42,.30,.15,1)),
-                ('buf', 3.4, '三态缓冲器', '三态缓冲器', (.28,.24,.44,1)),
-                ('motor', 8.1, '执行器', '电机', (.24,.30,.37,1))]:
+                ('buf', 3.4, '三态缓冲器', '三态缓冲器', (0.296,0.288,0.268,1)),
+                ('motor', 8.1, '执行器', '电机', (0.372,0.361,0.335,1))]:
             box(self.render, key, (bx, 0, .40), (2.3, 3.0, .6), color)
             self.world_text(name, (bx, 1.55, 1.55), .46)
             self.world_text(sub, (bx, 1.55, 1.10), .30, MUTED)
             if key in ('mcu', 'ls', 'buf'):
-                box(self.render, 'chip', (bx, .1, .78), (1.1, 1.0, .16), (.04,.05,.07,1))
-        box(self.render, 'screen', (-8.7, .9, 1.35), (1.9, .16, 1.3), (.11,.16,.21,1))
+                box(self.render, 'chip', (bx, .1, .78), (1.1, 1.0, .16), (0.149,0.144,0.134,1))
+        box(self.render, 'screen', (-8.7, .9, 1.35), (1.9, .16, 1.3), (0.243,0.235,0.219,1))
         box(self.render, 'display', (-8.7, .8, 1.40), (1.62, .04, 1.0), (.10,.48,.58,1))
-        self.gate_tx = box(self.render, 'gate-tx', (3.4, -1.1, .80), (.9, .38, .14), (1,1,1,1))
-        self.gate_rx = box(self.render, 'gate-rx', (3.4, 0, .80), (.9, .38, .14), (1,1,1,1))
+        self.gate_tx = box(self.render, 'gate-tx', (3.4, -1.1, .80), (.9, .38, .14), (0.978,0.950,0.883,1))
+        self.gate_rx = box(self.render, 'gate-rx', (3.4, 0, .80), (.9, .38, .14), (0.978,0.950,0.883,1))
         self.gate_tx.setLightOff(); self.gate_rx.setLightOff()
         # 电机：表盘 + 舵盘 + 目标虚影
         mx, my, mz = 8.1, -.2, .72
         dial = LineSegs()
         dial.setThickness(2)
-        dial.setColor(.45,.55,.65,1)
+        dial.setColor(0.574,0.558,0.519,1)
         for k in range(0, 361, 6):
             a = math.radians(k)
             p = (mx + 1.0*math.sin(a), my + 1.0*math.cos(a), mz)
@@ -678,7 +682,7 @@ class Demo(ShowBase):
         self.horn.setPos(mx, my, mz + .06)
         box(self.horn, 'horn', (0, .42, 0), (.30, 1.0, .14), (.95,.74,.32,1))
         box(self.horn, 'horn-tail', (0, -.15, 0), (.40, .40, .14), (.95,.74,.32,1))
-        box(self.horn, 'axis', (0, 0, .10), (.30, .30, .16), (.70,.75,.80,1))
+        box(self.horn, 'axis', (0, 0, .10), (.30, .30, .16), (0.801,0.778,0.723,1))
         self.angle_world = self.world_text('180.0°', (8.1, -1.9, .95), .36, GREEN).node()
         z = .86
         self.paths = {
@@ -734,9 +738,9 @@ class Demo(ShowBase):
         self.target_text = self.text('', cx, y+58, 15, ORANGE)
         self.slider = DirectSlider(parent=self.pixel2d, range=(0, 359), value=90, pageSize=1, scale=1,
                                    pos=(cx+cw/2, 0, -(y+80)), frameSize=(-cw/2+6, cw/2-6, -5, 5),
-                                   frameColor=(.15,.23,.31,1), thumb_frameSize=(-7,7,-11,11),
+                                   frameColor=(0.302,0.293,0.273,1), thumb_frameSize=(-7,7,-11,11),
                                    thumb_frameColor=ORANGE, command=self.target_change)
-        self.auto_btn = self.button('自动走完整流程', cx, y+98, cw, self.start_sequence, (.14,.36,.26,1), size=15, h=34)
+        self.auto_btn = self.button('自动走完整流程', cx, y+98, cw, self.start_sequence, PRIMARY, size=15, h=34)
         half = (cw - 8) / 2
         self.speed_btns = [self.button('慢速·逐步讲解', cx, y+138, half, lambda: self.set_speed(1), size=12, h=26),
                            self.button('快速', cx+half+8, y+138, half, lambda: self.set_speed(3), size=12, h=26)]
@@ -744,7 +748,7 @@ class Demo(ShowBase):
         self.flow_rows = {}
         for i, (kind, title, why) in enumerate(FLOW):
             fy = y + 194 + i * 54
-            btn = DirectButton(parent=self.pixel2d, frameSize=(0, cw, -50, 0), frameColor=(.09,.14,.20,1),
+            btn = DirectButton(parent=self.pixel2d, frameSize=(0, cw, -50, 0), frameColor=(0.225,0.218,0.203,1),
                                pos=(cx, 0, -fy), relief=1, borderWidth=(0, 0),
                                command=self.flow_click, extraArgs=[kind])
             mark = self.text('', cx+cw-8, fy+20, 13, MUTED, align=TextNode.ARight)
@@ -763,7 +767,7 @@ class Demo(ShowBase):
         self.dial_root.setPos(self.dial_c[0], 0, -self.dial_c[1])
         r = 54
         ring = [(r*math.sin(math.radians(k)), -r*math.cos(math.radians(k))) for k in range(0, 361, 5)]
-        lines2d(self.dial_root, [ring], (.35,.45,.55,1), 2)
+        lines2d(self.dial_root, [ring], (0.466,0.453,0.421,1), 2)
         for k, lab in [(0, '0°'), (90, '90°'), (180, '180°'), (270, '270°')]:
             a = math.radians(k)
             lines2d(self.dial_root, [[((r-7)*math.sin(a), -(r-7)*math.cos(a)), (r*math.sin(a), -r*math.cos(a))]], MUTED, 2)
@@ -775,7 +779,7 @@ class Demo(ShowBase):
         lines2d(self.dial_goal, [[(0, 0), (0, -r+6)]], (1, .66, .25, .55), 2)
         self.dial_needle = self.dial_root.attachNewNode('needle')
         poly2d(self.dial_needle, [(-5, 0), (5, 0), (2, -r+6), (-2, -r+6)], GREEN)
-        poly2d(self.dial_needle, [(-6, -6), (6, -6), (6, 6), (-6, 6)], (.70,.75,.80,1))
+        poly2d(self.dial_needle, [(-6, -6), (6, -6), (6, 6), (-6, 6)], (0.801,0.778,0.723,1))
         self.text('电机俯视', cx+158, self.dial_y+20, 13, WHITE)
         self.motor_text = self.text('', cx+158, self.dial_y+44, 13, GREEN)
 
@@ -825,16 +829,16 @@ class Demo(ShowBase):
         self.text('指令包（HEX，可直接修改）', x+14, y+22, 12, MUTED)
         self.raw_entry = self.entry('', x+15, y+44, w-30, 12)
         bw = (w - 28 - 4*6) / 5
-        for i, (label, cmd, col) in enumerate([('载入此包', self.load_packet, (.13,.31,.36,1)),
-                                               ('下一步', self.next_step, (.18,.27,.43,1)),
+        for i, (label, cmd, col) in enumerate([('载入此包', self.load_packet, (0.345,0.335,0.312,1)),
+                                               ('下一步', self.next_step, PRIMARY),
                                                ('自动播放', self.toggle_play, (.15,.33,.25,1)),
-                                               ('重新播放', self.replay, (.13,.21,.29,1)),
-                                               ('恢复初始', self.reset, (.13,.21,.29,1))]):
+                                               ('重新播放', self.replay, (0.284,0.275,0.256,1)),
+                                               ('恢复初始', self.reset, (0.284,0.275,0.256,1))]):
             btn = self.button(label, x+14+i*(bw+6), y+58, bw, cmd, col, size=13, h=30)
             if label == '自动播放': self.play_btn = btn
         self.easy_btn = self.button('', x+w-14-150, y+6, 150, self.toggle_beginner, size=12, h=24)
         self.paint_beginner()
-        self.step_title = self.text('', x+14, y+122, 17, CYAN)
+        self.step_title = self.text('', x+14, y+122, 17, ACCENT)
         self.step_text = self.text('', x+14, y+150, 14, WHITE)
         self.term_text = self.text('', x+14, y+268, 13, YELLOW)
 
@@ -870,13 +874,13 @@ class Demo(ShowBase):
             if i == active:
                 f['frameColor'] = color; t.setTextColor(*INK)
             else:
-                f['frameColor'] = (.10,.15,.21,1); t.setTextColor(*done_color)
+                f['frameColor'] = (0.234,0.227,0.212,1); t.setTextColor(*done_color)
 
     # ------------------------------------------------------------------ 放大镜
     def set_lens(self, tab):
         self.lens_tab = tab
         for key, btn in self.lens_tabs.items():
-            btn['frameColor'] = (.24,.36,.50,1) if key == tab else (.10,.15,.21,1)
+            btn['frameColor'] = ACCENT_DARK if key == tab else (0.234,0.227,0.212,1)
         self.lens_tok.show() if tab == 'mcu' else self.lens_tok.hide()
         self.draw_lens()
 
@@ -888,8 +892,8 @@ class Demo(ShowBase):
         self.lens_cursor.hide()
         {'mcu': self.draw_mcu, 'buf': self.draw_chip, 'wave': self.draw_wave,
          'bits': self.draw_bits}[self.lens_tab](self.lens_root)
-        self.gate_tx.setColorScale(*(ORANGE if self.dir_level else (.2,.22,.26,1)))
-        self.gate_rx.setColorScale(*(GREEN if not self.dir_level else (.2,.22,.26,1)))
+        self.gate_tx.setColorScale(*(ORANGE if self.dir_level else (0.305,0.297,0.276,1)))
+        self.gate_rx.setColorScale(*(GREEN if not self.dir_level else (0.305,0.297,0.276,1)))
         self.dir_world.node().setText('DIR = 1 发送' if self.dir_level else 'DIR = 0 接收')
         hi = self.dir_level == 1
         self.dir_badge['frameColor'] = (.42,.27,.05,1) if hi else (.07,.24,.18,1)
@@ -901,14 +905,14 @@ class Demo(ShowBase):
         for key in ('dir1','dir2'):
             self.wires[key].setColor(*(YELLOW if hi else (.27,.39,.35,1)), 1)
 
-    def cells2d(self, root, x, y, values, pitch, w, h, color, active=None, size=10, empty=(.06,.09,.13,1)):
+    def cells2d(self, root, x, y, values, pitch, w, h, color, active=None, size=10, empty=(0.182,0.177,0.164,1)):
         for i, v in enumerate(values):
             cx = x + i * pitch
             if v is None:
                 rect2d(root, cx, y, cx + w, y + h, empty)
                 continue
             on = (i == active)
-            rect2d(root, cx, y, cx + w, y + h, color if on else (.16,.22,.30,1))
+            rect2d(root, cx, y, cx + w, y + h, color if on else (0.298,0.290,0.269,1))
             self.text(f'{v:02X}', cx + w/2, y + h/2 + size*.36, size, INK if on else WHITE,
                       align=TextNode.ACenter, parent=root)
 
@@ -948,12 +952,12 @@ class Demo(ShowBase):
             self.text(caption, caption_x or (x0 + 16*19 - 2), y - 15, 10, MUTED, align=TextNode.ARight, parent=root)
 
     def shift_box(self, root, x0, y, val, color):
-        rect2d(root, x0, y - 11, x0 + 72, y + 11, color if val is not None else (.05,.08,.11,1))
+        rect2d(root, x0, y - 11, x0 + 72, y + 11, color if val is not None else (0.172,0.167,0.155,1))
         self.text('移位寄存器' if val is None else f'{val:02X}', x0 + 36, y + 4.5, 10 if val is None else 13,
                   DIM if val is None else INK, align=TextNode.ACenter, parent=root)
 
     def pin(self, root, x, y, label, color, left=True):
-        rect2d(root, x - 7, y - 6, x + 7, y + 6, (.78,.80,.84,1))
+        rect2d(root, x - 7, y - 6, x + 7, y + 6, (0.863,0.838,0.780,1))
         if left:
             self.text(label, x - 10, y + 4, 10, color, align=TextNode.ARight, parent=root)
         else:
@@ -961,11 +965,11 @@ class Demo(ShowBase):
 
     def draw_mcu(self, root):
         m, f = self.mcu, self.fw
-        rect2d(root, 34, 42, 722, 398, (.06,.10,.10,1))
+        rect2d(root, 34, 42, 722, 398, (0.185,0.179,0.167,1))
         lines2d(root, [[(34,42),(722,42),(722,398),(34,398),(34,42)]], (.22,.45,.36,1), 2)
         self.text('MCU 芯片内部', 716, 56, 11, (.45,.75,.62,1), align=TextNode.ARight, parent=root)
         # UART0：电脑侧
-        rect2d(root, 48, 60, 446, 168, (.09,.16,.22,1))
+        rect2d(root, 48, 60, 446, 168, (0.238,0.231,0.215,1))
         self.text('UART0 · 电脑侧 · 115200', 56, 80, 13, CYAN, parent=root)
         self.shift_box(root, 56, 103, None, CYAN)
         self.lane(root, 138, 103, [None]*16, CYAN, caption='收 · RX FIFO 16 格')
@@ -985,8 +989,8 @@ class Demo(ShowBase):
         if f['wait'] is not None:
             self.text(f'等待 millis() − t0 = {f["wait"]}', 468, 162, 11, YELLOW, parent=root)
         # SRAM
-        rect2d(root, 48, 184, 722, 272, (.11,.11,.19,1))
-        self.text('SRAM（内存）', 56, 200, 12, (.72,.68,.96,1), parent=root)
+        rect2d(root, 48, 184, 722, 272, (0.213,0.207,0.192,1))
+        self.text('SRAM（内存）', 56, 200, 12, (0.782,0.759,0.706,1), parent=root)
         self.text('g_buf[]', 56, 222, 13, ORANGE, parent=root)
         self.text('g_rx[]', 56, 258, 13, GREEN, parent=root)
         for rx, vals, active, col in ((False, f['buf'], f['i'], ORANGE), (True, f['rx'], f['rx_i'], GREEN)):
@@ -995,22 +999,22 @@ class Demo(ShowBase):
                 v = vals[k] if k < len(vals) else None
                 on = v is not None and k == active
                 rect2d(root, cx - 16, cy - 11, cx + 16, cy + 11,
-                       col if on else (.18,.19,.30,1) if v is not None else (.08,.08,.13,1))
+                       col if on else (0.288,0.279,0.260,1) if v is not None else (0.182,0.177,0.165,1))
                 if v is not None:
                     self.text(f'{v:02X}', cx, cy + 4.5, 12, INK if on else WHITE, align=TextNode.ACenter, parent=root)
         self.text('CPU 经 APB 总线读写 UART 寄存器、读写 SRAM', 716, 200, 10, DIM, align=TextNode.ARight, parent=root)
         # UART1 发送状态 + GPIO
         e, ef = f['txempty'], f['txemptyf']
-        rect2d(root, 48, 280, 304, 380, (.10,.10,.16,1))
+        rect2d(root, 48, 280, 304, 380, (0.202,0.196,0.182,1))
         self.text('UART1 发送状态（教学信号）', 56, 298, 12, MUTED, parent=root)
-        rect2d(root, 56, 308, 70, 322, YELLOW if e else (.2,.2,.24,1))
+        rect2d(root, 56, 308, 70, 322, YELLOW if e else (0.292,0.284,0.264,1))
         self.text(f'FIFO_EMPTY = {e}  队列空', 78, 320, 12, YELLOW if e else MUTED, parent=root)
-        rect2d(root, 56, 332, 70, 346, GREEN if ef else (.2,.2,.24,1))
+        rect2d(root, 56, 332, 70, 346, GREEN if ef else (0.292,0.284,0.264,1))
         self.text(f'TX_COMPLETE = {ef}  真正发完', 78, 344, 12, GREEN if ef else MUTED, parent=root)
         self.text('GPIO DIR_GPIO（DIR）', 56, 370, 12, PURPLE, parent=root)
-        rect2d(root, 170, 357, 230, 377, PURPLE if self.dir_level else (.14,.12,.22,1))
+        rect2d(root, 170, 357, 230, 377, PURPLE if self.dir_level else (0.230,0.223,0.208,1))
         self.text(str(self.dir_level), 200, 373, 14, INK if self.dir_level else MUTED, align=TextNode.ACenter, parent=root)
-        lines2d(root, [[(230, 367), (304, 367), (304, 388), (722, 388)]], PURPLE if self.dir_level else (.42,.36,.58,1), 2)
+        lines2d(root, [[(230, 367), (304, 367), (304, 388), (722, 388)]], PURPLE if self.dir_level else (0.435,0.422,0.393,1), 2)
         # UART1：电机侧
         rect2d(root, 316, 280, 722, 380, (.17,.12,.08,1))
         self.text('UART1 · 电机侧 · 57600', 324, 298, 13, ORANGE, parent=root)
@@ -1035,7 +1039,7 @@ class Demo(ShowBase):
         self.text('DIR 引脚电平', -172, 65, 17, WHITE, parent=root)
         self.text('HIGH  1' if hi else 'LOW  0', -172, 105, 27, YELLOW if hi else GREEN, parent=root)
         self.text('约 3.3V' if hi else '约 0V', -172, 136, 20, YELLOW if hi else GREEN, parent=root)
-        rect2d(root, -125, 156, -88, 268, (.05,.07,.10,1))
+        rect2d(root, -125, 156, -88, 268, (0.165,0.161,0.149,1))
         rect2d(root, -125, 156 if hi else 265, -88, 268, YELLOW if hi else GREEN)
         self.text('3.3V', -80, 166, 13, MUTED, parent=root)
         self.text('0V', -80, 268, 13, MUTED, parent=root)
@@ -1043,16 +1047,16 @@ class Demo(ShowBase):
         lines2d(root,[points],YELLOW if hi else GREEN,5)
         self.text('上升沿：拉高' if hi else '低电平：接收', -172, 337, 14, YELLOW if hi else GREEN, parent=root)
         self.text('电压示意，非实物测量', -172, 362, 10, MUTED, parent=root)
-        self.text(f'DIR = {self.dir_level}', 324, 34, 22, PURPLE if hi else (.55,.47,.75,1),
+        self.text(f'DIR = {self.dir_level}', 324, 34, 22, PURPLE if hi else (0.568,0.551,0.512,1),
                   align=TextNode.ARight, parent=root)
         cx0, cx1, cy0, cy1 = 92, 250, 50, 232
-        poly2d(root, [(cx0,cy0),(cx1,cy0),(cx1,cy1),(cx0,cy1)], (.16,.14,.26,1))
-        lines2d(root, [[(cx0,cy0),(cx1,cy0),(cx1,cy1),(cx0,cy1),(cx0,cy0)]], (.40,.34,.60,1), 2)
+        poly2d(root, [(cx0,cy0),(cx1,cy0),(cx1,cy1),(cx0,cy1)], (0.251,0.243,0.226,1))
+        lines2d(root, [[(cx0,cy0),(cx1,cy0),(cx1,cy1),(cx0,cy1),(cx0,cy0)]], (0.418,0.406,0.378,1), 2)
         ty, ry, dy = 80, 188, 134
         self.text('MCU TX', 8, ty+5, 13, ORANGE, parent=root)
         self.text('DIR', 8, dy+5, 13, PURPLE, parent=root)
         self.text('MCU RX', 8, ry+5, 13, GREEN, parent=root)
-        dir_col = PURPLE if hi else (.42,.36,.58,1)
+        dir_col = PURPLE if hi else (0.435,0.422,0.393,1)
         lines2d(root, [[(62,ty),(140,ty)]], ORANGE, 3)
         lines2d(root, [[(34,dy),(160,dy)], [(160,dy),(160,ty+22)], [(160,dy),(160,ry-22)]], dir_col, 4 if hi else 3)
         tri = [(140,ty-20),(140,ty+20),(182,ty)]
@@ -1135,7 +1139,7 @@ class Demo(ShowBase):
             lines2d(root, [[(X(0), y_start), (X(t_change), y_start), (X(t_change), y_end), (X(self.WAVE_BITS), y_end)]], col, thick)
         digital(148, tA, 0, YELLOW)
         digital(186, tF, 0, GREEN)
-        digital(224, tDir, 1, PURPLE if not bad else (.42,.36,.58,1), 2)
+        digital(224, tDir, 1, PURPLE if not bad else (0.435,0.422,0.393,1), 2)
         digital(262, tA + .3, 1, RED if bad else (.5,.3,.33,1), 2)
         for t, col, mark in ((tA, YELLOW, '①'), (tF, GREEN, '②')):
             for yy in range(66, 276, 8):
@@ -1187,12 +1191,12 @@ class Demo(ShowBase):
 
     def flag(self, root, x, y, name, val, col, note=''):
         on = bool(val)
-        rect2d(root, x, y - 11, x + 14, y + 3, col if on else (.2,.2,.24,1))
+        rect2d(root, x, y - 11, x + 14, y + 3, col if on else (0.292,0.284,0.264,1))
         self.text(f'{name} = {val}' + (f'  {note}' if note else ''), x + 22, y + 1, 12,
                   col if on else MUTED, parent=root)
 
     def block(self, root, x0, y0, x1, y1, title, col, sub=''):
-        rect2d(root, x0, y0, x1, y1, (.09,.13,.19,1))
+        rect2d(root, x0, y0, x1, y1, (0.219,0.212,0.197,1))
         lines2d(root, [[(x0,y0),(x1,y0),(x1,y1),(x0,y1),(x0,y0)]], col, 1)
         self.text(title, (x0 + x1) / 2, y0 + 16, 11, col, align=TextNode.ACenter, parent=root)
         if sub:
@@ -1213,7 +1217,7 @@ class Demo(ShowBase):
 
     def draw_bits(self, root):
         b = self.bits
-        rect2d(root, 8, 40, 747, 396, (.05,.08,.11,1))
+        rect2d(root, 8, 40, 747, 396, (0.172,0.167,0.155,1))
         {'boot': self.bits_boot, 'rx': self.bits_rx, 'read': self.bits_read, 'hdr': self.bits_hdr,
          'len': self.bits_len, 'drain': self.bits_drain, 'gpio': self.bits_gpio, 'tx': self.bits_tx,
          'timeout': self.bits_timeout}.get(b['mode'], self.bits_idle)(root, b)
@@ -1243,7 +1247,7 @@ class Demo(ShowBase):
         for i, (name, col, l1, l2) in enumerate(rows):
             y = 92 + i * 66
             lines2d(root, [[(470, y + 20), (490, y + 20)]], YELLOW, 2)
-            rect2d(root, 490, y, 737, y + 54, (.09,.13,.19,1))
+            rect2d(root, 490, y, 737, y + 54, (0.219,0.212,0.197,1))
             self.text(name, 498, y + 17, 12, col, parent=root)
             self.text(l1, 498, y + 33, 10, WHITE, parent=root)
             self.text(l2, 498, y + 48, 10, MUTED, parent=root)
@@ -1275,7 +1279,7 @@ class Demo(ShowBase):
                 pts += [(X(k), yv), (X(min(k + 1, t_end)), yv)]
             if len(pts) > 1:
                 lines2d(root, [pts], col, thick)
-        trace(12, (.22,.28,.36,1), 1)
+        trace(12, (0.354,0.344,0.320,1), 1)
         trace(t, CYAN, 3)
         cur = int(t)
         for k, name in enumerate(names):
@@ -1288,8 +1292,8 @@ class Demo(ShowBase):
                 x = X(k + j / 16)
                 seg = [(x, 134), (x, 142 if j == 8 else 138)]
                 (done_ticks if k + j / 16 <= t else todo_ticks).append(seg)
-        if todo_ticks: lines2d(root, todo_ticks, (.18,.22,.28,1), 1)
-        if done_ticks: lines2d(root, done_ticks, (.45,.55,.65,1), 1)
+        if todo_ticks: lines2d(root, todo_ticks, (0.302,0.293,0.273,1), 1)
+        if done_ticks: lines2d(root, done_ticks, (0.574,0.558,0.519,1), 1)
         samples = [(1.5, levels[1], '确认')] + [(2.5 + k, levels[2 + k], str(levels[2 + k])) for k in range(8)] \
                   + [(10.5, levels[10], '停=1')]
         for s, v, lab in samples:
@@ -1308,7 +1312,7 @@ class Demo(ShowBase):
             x0 = self.BIT_X0 + j * 44
             v = data[m - 1 - j] if j < m else None
             new = j == 0 and m and b['phase'] == 'data' and t - (2.5 + m - 1) < .6
-            rect2d(root, x0, 176, x0 + 40, 204, YELLOW if new else (.16,.22,.30,1) if v is not None else (.08,.10,.14,1))
+            rect2d(root, x0, 176, x0 + 40, 204, YELLOW if new else (0.298,0.290,0.269,1) if v is not None else (0.194,0.189,0.175,1))
             if v is not None:
                 self.text(str(v), x0 + 20, 196, 15, INK if new else WHITE, align=TextNode.ACenter, parent=root)
             self.text(f'bit{7 - j}', x0 + 20, 218, 9, DIM, align=TextNode.ACenter, parent=root)
@@ -1320,7 +1324,7 @@ class Demo(ShowBase):
         for k in range(5):
             x0 = 560 + k * 35
             on = pushed and k == 0
-            rect2d(root, x0, 176, x0 + 32, 204, GREEN if on else (.08,.10,.14,1))
+            rect2d(root, x0, 176, x0 + 32, 204, GREEN if on else (0.194,0.189,0.175,1))
             if on:
                 self.text(f'{byte:02X}', x0 + 16, 195, 12, INK, align=TextNode.ACenter, parent=root)
         self.flag(root, 560, 240, 'RX_EMPTY', 0 if pushed else 1, YELLOW, '有字节了' if pushed else '队列空')
@@ -1357,7 +1361,7 @@ class Demo(ShowBase):
                                         ('FE', 0), ('RX_EMPTY', empty)]):
             x0 = 18 + i * 144
             on = name == 'RX_EMPTY'
-            rect2d(root, x0, 178, x0 + 138, 222, (.20,.16,.09,1) if on else (.09,.13,.19,1))
+            rect2d(root, x0, 178, x0 + 138, 222, (.20,.16,.09,1) if on else (0.219,0.212,0.197,1))
             self.text(name, x0 + 69, 196, 11, YELLOW if on else MUTED, align=TextNode.ACenter, parent=root)
             self.text(str(v), x0 + 69, 216, 15, YELLOW if on else WHITE, align=TextNode.ACenter, parent=root)
         self.text('RX_EMPTY 由硬件自动维护：FIFO 进字节变 0，读空了变回 1。CPU 只读不写。', 18, 248, 11, MUTED, parent=root)
@@ -1376,10 +1380,10 @@ class Demo(ShowBase):
         self.text('收到的 b', 18, 140, 12, MUTED, parent=root)
         for i in range(4):
             x0 = 110 + i * 70
-            rect2d(root, x0, 78, x0 + 60, 106, (.16,.22,.30,1))
+            rect2d(root, x0, 78, x0 + 60, 106, (0.298,0.290,0.269,1))
             self.text(f'{(0xFF, 0xFF, 0xFD, 0x00)[i]:02X}', x0 + 30, 98, 14, WHITE, align=TextNode.ACenter, parent=root)
             got = i < t
-            rect2d(root, x0, 120, x0 + 60, 148, ORANGE if got and i == k else (.16,.22,.30,1) if got else (.08,.10,.14,1))
+            rect2d(root, x0, 120, x0 + 60, 148, ORANGE if got and i == k else (0.298,0.290,0.269,1) if got else (0.194,0.189,0.175,1))
             if got:
                 self.text(f'{raw[i]:02X}', x0 + 30, 140, 14, INK if i == k else WHITE, align=TextNode.ACenter, parent=root)
         xn = 110 + min(n, 3) * 70 + 30
@@ -1401,7 +1405,7 @@ class Demo(ShowBase):
         for i, (v, nv) in enumerate(zip(seq, ns)):
             x0 = 18 + i * 64
             bad = i in (0, 3)
-            rect2d(root, x0, 242, x0 + 56, 266, (.30,.12,.14,1) if bad else (.16,.22,.30,1))
+            rect2d(root, x0, 242, x0 + 56, 266, (.30,.12,.14,1) if bad else (0.298,0.290,0.269,1))
             self.text(f'{v:02X}', x0 + 28, 260, 13, WHITE, align=TextNode.ACenter, parent=root)
             self.text(f'n={nv}', x0 + 28, 284, 11, RED if bad else MUTED, align=TextNode.ACenter, parent=root)
         self.text('12：对不上且不是 FF → n=0', 470, 254, 11, MUTED, parent=root)
@@ -1421,7 +1425,7 @@ class Demo(ShowBase):
             x0 = 18 + i * 45
             on = i in (5, 6)
             got = stage == 2 or i < 7
-            rect2d(root, x0, 74, x0 + 40, 100, ORANGE if on else (.16,.22,.30,1) if got else (.08,.10,.14,1))
+            rect2d(root, x0, 74, x0 + 40, 100, ORANGE if on else (0.298,0.290,0.269,1) if got else (0.194,0.189,0.175,1))
             if got:
                 self.text(f'{raw[i]:02X}', x0 + 20, 93, 13, INK if on else WHITE, align=TextNode.ACenter, parent=root)
             self.text(f'[{i}]', x0 + 20, 114, 9, ORANGE if on else DIM, align=TextNode.ACenter, parent=root)
@@ -1458,7 +1462,7 @@ class Demo(ShowBase):
         for k in range(4):
             x0 = 30 + k * 54
             v = left[k] if k < len(left) else None
-            rect2d(root, x0, 104, x0 + 46, 128, GREEN if v is not None else (.08,.10,.14,1))
+            rect2d(root, x0, 104, x0 + 46, 128, GREEN if v is not None else (0.194,0.189,0.175,1))
             if v is not None:
                 self.text(f'{v:02X}', x0 + 23, 121, 12, INK, align=TextNode.ACenter, parent=root)
         self.block(root, 330, 80, 450, 140, 'CPU', YELLOW, '读出不保存')
@@ -1495,7 +1499,7 @@ class Demo(ShowBase):
             bit = 7 - k
             dir_bit = bit == 3
             v = (1 if set_ else 0) if dir_bit else 0
-            rect2d(root, x0, 94, x0 + 23, 120, (PURPLE if v else (.20,.16,.30,1)) if dir_bit else (.10,.12,.16,1))
+            rect2d(root, x0, 94, x0 + 23, 120, (PURPLE if v else (0.277,0.269,0.250,1)) if dir_bit else (0.213,0.207,0.192,1))
             self.text(str(v), x0 + 11.5, 113, 12, INK if v else (WHITE if dir_bit else DIM), align=TextNode.ACenter, parent=root)
             self.text(str(bit), x0 + 11.5, 134, 9, PURPLE if dir_bit else DIM, align=TextNode.ACenter, parent=root)
         self.text('第 3 位 = DIR（举例），其他位不动', 268, 152, 10, MUTED, parent=root)
@@ -1508,15 +1512,15 @@ class Demo(ShowBase):
         self.text('3.3V', cx, 74, 12, YELLOW, align=TextNode.ACenter, parent=root)
         lines2d(root, [[(cx - 20, 80), (cx + 20, 80)], [(cx, 80), (cx, 150)]], YELLOW, 2)
         up_col, dn_col = (YELLOW if on else DIM), (DIM if on else GREEN)
-        rect2d(root, cx - 26, 150, cx + 26, 186, (.30,.24,.08,1) if on else (.10,.12,.16,1))
+        rect2d(root, cx - 26, 150, cx + 26, 186, (.30,.24,.08,1) if on else (0.213,0.207,0.192,1))
         self.text('上管 ' + ('导通' if on else '关断'), cx, 173, 11, up_col, align=TextNode.ACenter, parent=root)
         lines2d(root, [[(cx, 186), (cx, 274)]], YELLOW if on else DIM, 2)
-        rect2d(root, cx - 26, 274, cx + 26, 310, (.08,.24,.16,1) if not on else (.10,.12,.16,1))
+        rect2d(root, cx - 26, 274, cx + 26, 310, (.08,.24,.16,1) if not on else (0.213,0.207,0.192,1))
         self.text('下管 ' + ('关断' if on else '导通'), cx, 297, 11, dn_col, align=TextNode.ACenter, parent=root)
         lines2d(root, [[(cx, 310), (cx, 340)], [(cx - 20, 340), (cx + 20, 340)]], GREEN, 2)
         self.text('GND', cx, 358, 12, GREEN, align=TextNode.ACenter, parent=root)
-        lines2d(root, [[(cx, 230), (720, 230)]], YELLOW if on else (.42,.36,.58,1), 3)
-        rect2d(root, 714, 222, 730, 238, (.78,.80,.84,1))
+        lines2d(root, [[(cx, 230), (720, 230)]], YELLOW if on else (0.435,0.422,0.393,1), 3)
+        rect2d(root, 714, 222, 730, 238, (0.863,0.838,0.780,1))
         self.text('DIR_GPIO', 722, 214, 11, PURPLE, align=TextNode.ACenter, parent=root)
         self.text(('约 3.3V' if on else '约 0V'), 722, 260, 13, YELLOW if on else GREEN, align=TextNode.ACenter, parent=root)
         self.text('→ 缓冲器 1 脚、7 脚', 737, 280, 10, MUTED, align=TextNode.ARight, parent=root)
@@ -1548,7 +1552,7 @@ class Demo(ShowBase):
         for k in range(7):
             x0 = 210 + (6 - k) * 30
             v = queue[k] if k < len(queue) else None
-            rect2d(root, x0, 94, x0 + 27, 122, ORANGE if v is not None else (.08,.10,.14,1))
+            rect2d(root, x0, 94, x0 + 27, 122, ORANGE if v is not None else (0.194,0.189,0.175,1))
             if v is not None:
                 self.text(f'{v:02X}', x0 + 13.5, 113, 11, INK, align=TextNode.ACenter, parent=root)
         if len(queue) > 7:
@@ -1564,7 +1568,7 @@ class Demo(ShowBase):
             src = j - sent
             v = frame[src] if loaded and 0 <= src < 10 else None
             out = src == 9 and stage == 3
-            rect2d(root, x0, 94, x0 + 25, 122, YELLOW if out else (.16,.22,.30,1) if v is not None else (.08,.10,.14,1))
+            rect2d(root, x0, 94, x0 + 25, 122, YELLOW if out else (0.298,0.290,0.269,1) if v is not None else (0.194,0.189,0.175,1))
             if v is not None:
                 self.text(str(v), x0 + 12.5, 114, 13, INK if out else WHITE, align=TextNode.ACenter, parent=root)
                 self.text(names[src], x0 + 12.5, 137, 10, YELLOW if names[src] in ('起', '停') else DIM,
@@ -1634,7 +1638,7 @@ class Demo(ShowBase):
         self.text('read_packet(MOTOR_UART, g_rx, 20)：带超时地等第一个字节', 18, 60, 13, GREEN, parent=root)
         x = lambda ms: 60 + ms * 32
         y = 110
-        rect2d(root, x(0), y - 10, x(20), y + 10, (.08,.10,.14,1))
+        rect2d(root, x(0), y - 10, x(20), y + 10, (0.194,0.189,0.175,1))
         rect2d(root, x(0), y - 10, x(max(.08, elapsed)), y + 10, GREEN)
         lines2d(root, [[(x(20), y - 18), (x(20), y + 18)]], RED, 2)
         for v in (0, 5, 10, 15, 20):
@@ -1653,7 +1657,7 @@ class Demo(ShowBase):
             y0=272)
 
     def flash_lens(self):
-        self.lens_frame['frameColor'] = (.20,.15,.33,1)
+        self.lens_frame['frameColor'] = (0.274,0.266,0.248,1)
         self.timers.append((time.monotonic() + .9, lambda: self.lens_frame.__setitem__('frameColor', CARD)))
 
     # ------------------------------------------------------------------ 代码与变量
@@ -1678,7 +1682,7 @@ class Demo(ShowBase):
             is_comment = line.strip().startswith('/*') or line.strip().startswith('//')
             self.code_bars[r]['frameColor'] = (.30,.24,.10,1) if on else (0,0,0,0)
             code.setTextColor(*(YELLOW if on and is_comment else WHITE if on else
-                                (.45,.56,.66,1) if is_comment else (.74,.82,.90,1)))
+                                (0.582,0.565,0.525,1) if is_comment else (0.870,0.845,0.786,1)))
             num.setTextColor(*(YELLOW if on else DIM))
         self.hl_lines = sorted(hl)
 
@@ -1713,14 +1717,14 @@ class Demo(ShowBase):
     def set_speed(self, speed):
         self.speed = speed
         for i, btn in enumerate(self.speed_btns):
-            btn['frameColor'] = (.24,.36,.50,1) if (speed == 1) == (i == 0) else (.10,.15,.21,1)
+            btn['frameColor'] = ACCENT_DARK if (speed == 1) == (i == 0) else (0.234,0.227,0.212,1)
 
     def refresh_flow(self):
         for kind, (btn, t1, t2, mark) in self.flow_rows.items():
             state, note = self.flow_state[kind]
             current = self.kind == kind and not self.finished
             btn['frameColor'] = ((.22,.20,.10,1) if current else (.08,.20,.15,1) if state == 'ok'
-                                 else (.25,.10,.12,1) if state == 'fail' else (.09,.14,.20,1))
+                                 else (.25,.10,.12,1) if state == 'fail' else (0.225,0.218,0.203,1))
             mark.setText({'ok': '√', 'fail': '×', 'run': '…'}.get(state, ''))
             mark.setTextColor(*(GREEN if state == 'ok' else RED if state == 'fail' else YELLOW))
             if note:
@@ -1992,7 +1996,7 @@ class Demo(ShowBase):
 
     def paint_beginner(self):
         self.easy_btn['text'] = '讲解：新手' if self.beginner else '讲解：专业'
-        self.easy_btn['frameColor'] = (.14,.33,.30,1) if self.beginner else (.10,.15,.21,1)
+        self.easy_btn['frameColor'] = (.14,.33,.30,1) if self.beginner else (0.234,0.227,0.212,1)
 
     def toggle_beginner(self):
         self.beginner = not self.beginner
@@ -2003,7 +2007,7 @@ class Demo(ShowBase):
 
     def paint_detail(self):
         self.detail_btn['text'] = '细化 MCU：开' if self.detail else '细化 MCU：关'
-        self.detail_btn['frameColor'] = (.30,.22,.42,1) if self.detail else (.10,.15,.21,1)
+        self.detail_btn['frameColor'] = (0.288,0.279,0.260,1) if self.detail else (0.234,0.227,0.212,1)
 
     def toggle_detail(self):
         self.detail = not self.detail
