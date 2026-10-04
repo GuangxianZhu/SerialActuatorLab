@@ -106,6 +106,90 @@ STEPS = {
 LENS_FOR_STEP = {1: 'mcu', 2: 'mcu', 3: 'mcu', 4: 'buf', 5: 'mcu', 6: 'wave', 7: 'buf',
                  8: 'mcu', 9: 'buf', 10: 'mcu', 11: 'mcu', 12: 'mcu'}
 
+# MCU 内部细节（「细化 MCU」打开时，在对应大步骤之前逐格播放）。
+# 每格：(代码标签, 标题, 白话说明, 术语括注, 位级视图模式, 阶段, 动画 (t0, t1, 秒) 或 None)
+# 时钟、分频值是举例：假设外设时钟 48 MHz，不对应某块具体芯片。
+MICRO = {
+    1: [('01a', '上电：配时钟、波特率、GPIO',
+         '上电后 board_init() 只做一次准备：选时钟源，给两个 UART 算波特率分频值，把 DIR_GPIO 设成输出。接着 gpio_write_dir(0)，默认处在接收。之后 CPU 进入 while(1)，再也不回来。',
+         '分频：波特率 = 外设时钟 ÷ 16 ÷ 分频值。除不尽会有一点误差，收发两边误差一般要小于 2%。',
+         'boot', '', None)],
+    2: [('02a', '起始位：空闲线上的下降沿',
+         'RX 脚空闲时一直是高电平。接收器用比波特率快 16 倍的时钟盯着它：一看到下降沿就开始数拍，数到第 8 拍（半个位）再看一次，仍是低电平才认定是起始位，不是毛刺。这期间 CPU 只在 while 里空转。',
+         '16 倍过采样：每个位分 16 拍，在正中间那一拍取值，离两边的跳变最远，最不容易采错。',
+         'rx', 'start', (0, 1.5, 2.2)),
+        ('02b', '逐位采样：低位先到',
+         '之后每过 16 拍（正好 1 个位），在位的正中间采一次。先到的是最低位 b0。每采一位，移位寄存器整体右移一格，新位放进最左边；8 位采完，b0 正好落到最右边。',
+         'FF 在线上只有起始位是低电平。没有起始位，FF 和空闲线就分不清。',
+         'rx', 'data', (1.5, 9.5, 4.5)),
+        ('02c', '停止位检查，字节进 RX FIFO',
+         '第 10 个位必须是高电平（停止位）。是 1：整个字节搬进 RX FIFO，RX_EMPTY 从 1 变 0。是 0：说明波特率不对或线上有干扰，硬件置帧错误标志 FE。本固件不看 FE，坏字节留给后面的 CRC 把关。',
+         '02a～02c 全是 UART 硬件自己完成的，没有一行代码参与。',
+         'rx', 'stop', (9.5, 11.6, 1.8)),
+        ('02d', 'CPU 发现有数据，读出来',
+         'CPU 每转一圈都读一次状态寄存器。RX_EMPTY 一变 0，if 不成立、不再 continue，往下执行 UART_READ：经总线读 UART 的数据寄存器，FIFO 自动出队一格，值放进变量 b（在 CPU 寄存器里）。',
+         '轮询和中断：本固件一直问「到了吗」，叫轮询。中断写法是硬件收到字节就打断 CPU 去执行中断函数，CPU 平时可以做别的事。',
+         'read', '', (0, 1, 1.8)),
+        ('02e', '包头比对：一个小状态机',
+         'n < 4 时，b 必须等于包头 FF FF FD 00 的第 n 个字节，才执行 buf[n++] = b。对不上就重新同步：b 是 FF 时 n 回到 1（它可能是新包头的开头）；n 已是 2 时保持 2，应对 FF FF FF FD 00。',
+         '状态机：n 既是计数，也记着「包头已经对上了几个」。',
+         'hdr', '', (0, 4, 2.4))],
+    3: [('03a', '用长度字段算出整包大小',
+         'n 到 7 时，buf[5] 是长度的低字节，buf[6] 是高字节（低位在前，叫小端）。need = 7 + (buf[5] | buf[6] << 8)：7 是包头 4 + ID 1 + 长度 2，长度字段只数它后面的字节。',
+         '<< 8 是左移 8 位，等于乘 256，把高字节放回高位。',
+         'len', 'calc', None),
+        ('03b', '范围检查：不让数组越界',
+         'need 小于 10 不可能是合法包（指令 1 + CRC 2，加上前 7 个字节）；大于 PKT_MAX = 64 会写到 g_buf 外面。两种都 return 0，丢掉这包，main() 重新等。',
+         '缓冲区溢出：往数组外写会改坏别的变量，是单片机程序最常见的隐患之一。',
+         'len', 'range', None),
+        ('03c', 'n 追上 need：跳出循环',
+         'while (n < need) 每收一个字节判断一次。n 追上 need，条件不成立，return n。注意 MCU 这里不算 CRC，只是原样转发；CRC 由电机检查。',
+         '同一个循环收两种长度的包：need 先按 7 设，收到长度后再改成真实值。',
+         'len', 'done', None)],
+    4: [('04a', '先清掉电机侧的旧字节',
+         '发送之前，先把 UART1 RX FIFO 里残留的字节读出来丢掉，例如上一次超时之后才迟到的回包。不清的话，等会儿收回包时会先读到这些旧字节，包头对不上。',
+         '(void) 表示故意不用返回值。',
+         'drain', '', (0, 1, 1.6)),
+        ('04b', 'GPIO：写一位寄存器，引脚变 3.3V',
+         'gpio_write_dir(1) 在硬件上就是 CPU 往 GPIO 输出数据寄存器的某一位写 1。这一位直接控制引脚的推挽驱动：上管导通、下管关断，引脚被拉到 3.3V。只要几个时钟周期。',
+         '推挽输出：上下两个开关管一次只开一个，输出高、低都能提供电流。',
+         'gpio', '', (0, 1, 1.6))],
+    5: [('05a', '先看 TX FIFO 满没满',
+         'UART_IS_TX_FULL 读的是状态寄存器里的一位。现在 FIFO 是空的，条件不成立，while 立刻结束。如果包比 FIFO 长，CPU 会在这里等硬件发走一个字节、腾出一格。',
+         'while (…) {} 空循环：什么也不做，只是反复判断条件。',
+         'tx', 'full', None),
+        ('05b', 'CPU 写数据寄存器，字节进 TX FIFO',
+         'UART_WRITE 把字节写进 UART1 的数据寄存器，硬件马上把它放到 TX FIFO 队尾。CPU 写一个字节只要几个时钟周期，所以一转眼整包都进了 FIFO，远远快过线上发送。',
+         '数据寄存器：CPU 和 UART 之间的「投递口」，写它就是入队，读它就是出队。',
+         'tx', 'write', (0, 1, 1.6)),
+        ('05c', '硬件取字节，加上起始位和停止位',
+         '发送移位寄存器一空，硬件自动从 FIFO 队头取一个字节，在前面加起始位 0、后面加停止位 1，凑成 10 位。此时 CPU 已经在写后面的字节了，这一步不需要任何代码。',
+         '8N1：8 个数据位、无校验位、1 个停止位。',
+         'tx', 'load', (0, 1, 1.4)),
+        ('05d', '波特率发生器：一拍移出一位',
+         '波特率发生器每 17.4µs（57600 bps）打一拍，移位寄存器右移一格，最右边那一位出现在 ACT_TX 脚上：先起始位，再 b0…b7，最后停止位。10 拍发完一个字节，再取下一个。',
+         '最后两个字节的完整波形和 DIR 切换时机，见第 06 步的波形页。',
+         'tx', 'shift', (1, 11.4, 4.5))],
+    10: [('10a', '带超时的等待',
+          '收回包用的还是 read_packet()，只是多了超时：每转一圈先算 millis() - t0，超过 20ms 就 return 0，放弃这包。现在约 0.5ms 后第一个字节到达，RX_EMPTY 变 0，后面的收字节过程和第 02 步完全一样。',
+          'millis()：上电后经过的毫秒数，由一个定时器在后台计数。',
+          'timeout', '', (0, 1, 1.8))],
+    11: [('11a', '回传前同样先看 TX FIFO',
+          'pc_write() 和 motor_send() 的写法一样：先查 UART0 的 TX_FULL，再 UART_WRITE。UART0 跑 115200 bps，比电机侧快一倍，一个字节约 87µs 就发完。',
+          '这里不用切 DIR：电脑侧 TX、RX 是两根独立的线（全双工）。',
+          'tx', 'full', None)],
+}
+MICRO_COUNT = {step: len(items) for step, items in MICRO.items()}
+MICRO_CODE = {'01a': ('main', 'main() → board_init()'),
+              '04a': ('motor_send', 'main() → motor_send() 开头'),
+              '10a': ('read_packet', 'main() → read_packet(MOTOR_UART, g_rx, 20ms)'),
+              '11a': ('pc_write', 'main() → pc_write(g_rx, n)')}
+MICRO_CPU = {'01a': 'board_init()', '02a': '空等 RX', '02b': '空等 RX', '02c': '空等 RX',
+             '02d': 'UART_READ', '02e': '比对包头', '03a': '算 need', '03b': '检查 need',
+             '03c': 'return n', '04a': '清空 RX FIFO', '04b': 'gpio_write_dir(1)',
+             '05a': '查 TX_FULL', '05b': 'UART_WRITE', '05c': '继续写 FIFO', '05d': '继续写 FIFO',
+             '10a': '等回包（带超时）', '11a': '查 TX_FULL'}
+
 # 转到目标角度的流程：(kind, 标题, 为什么)
 FLOW = [
     ('ping', '① Ping', '问一声：ID 1 在吗？'),
@@ -200,7 +284,7 @@ def load_firmware():
                 current = None
     tags = {}
     for no, line in enumerate(lines, 1):
-        for m in re.finditer(r'\[(\d\d)\]', line):
+        for m in re.finditer(r'\[(\d\d)([a-z]?)\]', line):
             before, after = line[:m.start()], line[m.end():]
             if before.endswith('~') or after.startswith('~'):
                 continue  # “[04]~[07]” 是范围说明，不当作高亮点
@@ -208,9 +292,11 @@ def load_firmware():
             for nxt in range(no + 1, min(no + 6, len(lines) + 1)):
                 block.append(nxt)
                 text = lines[nxt - 1].rstrip()
-                if text.endswith(';') or text.endswith('}'):
+                if text.endswith(';') or text.endswith('}') or text.endswith('{'):
                     break
-            tags.setdefault(int(m.group(1)), []).append(block)
+            # [02] → 键 2（大步骤）；[02a] → 键 '02a'（MCU 内部细节）
+            key = m.group(1) + m.group(2) if m.group(2) else int(m.group(1))
+            tags.setdefault(key, []).append(block)
     return lines, functions, tags
 
 
@@ -338,6 +424,8 @@ class Demo(ShowBase):
         self.dir_level = 0
         self.lens_tab = 'mcu'
         self.wave_anim = None
+        self.bits_anim = None
+        self.detail = True      # 细化 MCU：大步骤前先播放 MICRO 里的细节格
         self.cpu_note = '等待'
         self.seq = None
         self.flow_state = {k: ('', '') for k, *_ in FLOW}
@@ -642,10 +730,13 @@ class Demo(ShowBase):
         self.lens_tok.setPos(x, 0, -y)
         self.lens_cursor = self.pixel2d.attachNewNode('lens-cursor')
         self.lens_tabs = {}
-        tw = 150
-        for i, (key, label) in enumerate([('mcu', 'MCU 内部'), ('buf', '三态缓冲器'), ('wave', '波形')]):
+        tw = 128
+        for i, (key, label) in enumerate([('mcu', 'MCU 内部'), ('buf', '三态缓冲器'), ('wave', '波形'),
+                                          ('bits', '位级细节')]):
             self.lens_tabs[key] = self.button(label, x + 14 + i*(tw+6), y + 8, tw,
                                               lambda k=key: self.set_lens(k), size=12, h=26)
+        self.detail_btn = self.button('', x + w - 14 - 160, y + 8, 160, self.toggle_detail, size=12, h=26)
+        self.paint_detail()
 
         # ---- 代码
         x, y, w, h = CODE
@@ -728,7 +819,8 @@ class Demo(ShowBase):
         x0, y0, w, h = LENS
         self.lens_root.setPos(x0, 0, -y0)
         self.lens_cursor.hide()
-        {'mcu': self.draw_mcu, 'buf': self.draw_chip, 'wave': self.draw_wave}[self.lens_tab](self.lens_root)
+        {'mcu': self.draw_mcu, 'buf': self.draw_chip, 'wave': self.draw_wave,
+         'bits': self.draw_bits}[self.lens_tab](self.lens_root)
         self.gate_tx.setColorScale(*(ORANGE if self.dir_level else (.2,.22,.26,1)))
         self.gate_rx.setColorScale(*(GREEN if not self.dir_level else (.2,.22,.26,1)))
         self.dir_world.node().setText('DIR = 1 发送' if self.dir_level else 'DIR = 0 接收')
@@ -1002,16 +1094,510 @@ class Demo(ShowBase):
         self.lens_cursor.show()
         self.lens_cursor.setX(self.wave_x(t))
 
+    # ------------------------------------------------------------------ 位级细节（MCU 内部）
+    # 时间单位 = 位。每个视图只画一个字节，self.bits['t'] 由 bits_anim 推进。
+    BIT_X0, BIT_W = 110, 52
+    CPU_MHZ, LOOP_CYCLES = 48, 10   # 举例：48 MHz，空循环每圈约 10 个时钟
+
+    def bx(self, t):
+        return self.BIT_X0 + self.BIT_W * t
+
+    @staticmethod
+    def along(points, r):
+        segs = list(zip(points, points[1:]))
+        lengths = [math.dist(a, b) for a, b in segs]
+        d = (sum(lengths) or 1) * max(0, min(1, r))
+        for (a, b), length in zip(segs, lengths):
+            if d <= length and length > 0:
+                k = d / length
+                return a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k
+            d -= length
+        return points[-1]
+
+    def token(self, root, x, y, label, color, w=30):
+        rect2d(root, x - w/2, y - 11, x + w/2, y + 11, color)
+        self.text(label, x, y + 4.5, 12, INK, align=TextNode.ACenter, parent=root)
+
+    def flag(self, root, x, y, name, val, col, note=''):
+        on = bool(val)
+        rect2d(root, x, y - 11, x + 14, y + 3, col if on else (.2,.2,.24,1))
+        self.text(f'{name} = {val}' + (f'  {note}' if note else ''), x + 22, y + 1, 12,
+                  col if on else MUTED, parent=root)
+
+    def block(self, root, x0, y0, x1, y1, title, col, sub=''):
+        rect2d(root, x0, y0, x1, y1, (.09,.13,.19,1))
+        lines2d(root, [[(x0,y0),(x1,y0),(x1,y1),(x0,y1),(x0,y0)]], col, 1)
+        self.text(title, (x0 + x1) / 2, y0 + 16, 11, col, align=TextNode.ACenter, parent=root)
+        if sub:
+            self.text(sub, (x0 + x1) / 2, y1 - 8, 10, MUTED, align=TextNode.ACenter, parent=root)
+
+    def code_box(self, root, rows, y0=272, title='CPU 同一时刻在执行'):
+        rect2d(root, 18, y0, 737, 390, (.20,.16,.09,1))
+        if title:
+            self.text(title, 28, y0 + 18, 12, YELLOW, parent=root)
+        for i, (code, note, on) in enumerate(rows):
+            yy = y0 + (42 if title else 22) + i * 21
+            self.text(code, 28, yy, 12, WHITE if on else MUTED, parent=root)
+            if note:
+                self.text(note, 430, yy, 12, YELLOW if on else DIM, parent=root)
+
+    def spins(self, us):
+        return int(us * self.CPU_MHZ / self.LOOP_CYCLES)
+
+    def draw_bits(self, root):
+        b = self.bits
+        rect2d(root, 8, 40, 747, 396, (.05,.08,.11,1))
+        {'boot': self.bits_boot, 'rx': self.bits_rx, 'read': self.bits_read, 'hdr': self.bits_hdr,
+         'len': self.bits_len, 'drain': self.bits_drain, 'gpio': self.bits_gpio, 'tx': self.bits_tx,
+         'timeout': self.bits_timeout}.get(b['mode'], self.bits_idle)(root, b)
+
+    def bits_idle(self, root, b):
+        state = '开' if self.detail else '关'
+        self.text(f'位级细节（细化 MCU：{state}）', 28, 80, 16, CYAN, parent=root)
+        for i, line in enumerate(['打开右上角「细化 MCU」后，按「下一步」时，MCU 相关的步骤',
+                                  '会先拆成几格，在这里一位一位地展示芯片内部：',
+                                  '起始位检测、16 倍过采样、移位寄存器、FIFO、状态寄存器、',
+                                  'CPU 轮询循环、包头状态机、长度检查、GPIO 推挽输出、超时计时。']):
+            self.text(line, 28, 120 + i * 24, 13, WHITE, parent=root)
+
+    def bits_boot(self, root, b):
+        self.text('上电初始化：board_init()（时钟数值为举例）', 18, 62, 13, CYAN, parent=root)
+        self.block(root, 18, 84, 138, 140, '时钟源', YELLOW, '晶振 / 内部 RC')
+        self.block(root, 168, 84, 288, 140, '倍频 / 分频', YELLOW, 'PLL')
+        self.block(root, 318, 84, 438, 140, '外设时钟', YELLOW, '48 MHz')
+        lines2d(root, [[(138,112),(168,112)], [(288,112),(318,112)], [(438,112),(470,112)],
+                       [(470,82),(470,348)]], YELLOW, 2)
+        rows = [('UART0 · 电脑侧', CYAN, '48 000 000 ÷ 16 ÷ 115200 ≈ 26.04 → 分频取 26',
+                 '实际 115385 bps，误差 +0.16%'),
+                ('UART1 · 电机侧', ORANGE, '48 000 000 ÷ 16 ÷ 57600 ≈ 52.08 → 分频取 52',
+                 '实际 57692 bps，误差 +0.16%'),
+                ('GPIO DIR_GPIO', PURPLE, '方向设为输出（推挽）', '随后 gpio_write_dir(0)：先接收'),
+                ('定时器', GREEN, '每 1ms 中断一次，给 millis() 加 1', '第 09/10 步的 20ms 超时靠它')]
+        for i, (name, col, l1, l2) in enumerate(rows):
+            y = 92 + i * 66
+            lines2d(root, [[(470, y + 20), (490, y + 20)]], YELLOW, 2)
+            rect2d(root, 490, y, 737, y + 54, (.09,.13,.19,1))
+            self.text(name, 498, y + 17, 12, col, parent=root)
+            self.text(l1, 498, y + 33, 10, WHITE, parent=root)
+            self.text(l2, 498, y + 48, 10, MUTED, parent=root)
+        notes = ['UART 的「波特率」不是凭空来的：外设时钟先除以 16（过采样），',
+                 '再除以分频值。除不尽时取整数，就会有一点误差。',
+                 '收发两边的误差加起来一般要小于 2%，否则',
+                 '到第 10 个位时采样点会滑出位的中间，读错。',
+                 '这些设置只在上电做一次；之后 CPU 进入 while(1)。']
+        for i, n in enumerate(notes):
+            self.text(n, 18, 178 + i * 22, 12, WHITE if i < 4 else GREEN, parent=root)
+
+    def bits_rx(self, root, b):
+        byte, t = b['byte'], b['t']
+        us = 1e6 / b['baud']
+        X = self.bx
+        self.text(f'{b["uart"]} 接收器 · {b["baud"]} bps · 1 位 = {us:.2f}µs · 16 倍过采样',
+                  18, 60, 13, CYAN, parent=root)
+        levels = [1] + uart_bits(byte) + [1]
+        names = ['空闲', '起'] + [f'b{k}' for k in range(8)] + ['停', '空闲']
+        hi, lo = 84, 108
+        self.text(f'{b["pin"]} 脚', 18, 100, 12, CYAN, parent=root)
+
+        def trace(t_end, col, thick):
+            pts = []
+            for k, v in enumerate(levels):
+                if k >= t_end:
+                    break
+                yv = hi if v else lo
+                pts += [(X(k), yv), (X(min(k + 1, t_end)), yv)]
+            if len(pts) > 1:
+                lines2d(root, [pts], col, thick)
+        trace(12, (.22,.28,.36,1), 1)
+        trace(t, CYAN, 3)
+        cur = int(t)
+        for k, name in enumerate(names):
+            self.text(name, X(k + .5), 126, 10, YELLOW if k == cur else MUTED,
+                      align=TextNode.ACenter, parent=root)
+        self.text('采样时钟', 18, 141, 11, MUTED, parent=root)
+        done_ticks, todo_ticks = [], []
+        for k in range(12):
+            for j in range(16):
+                x = X(k + j / 16)
+                seg = [(x, 134), (x, 142 if j == 8 else 138)]
+                (done_ticks if k + j / 16 <= t else todo_ticks).append(seg)
+        if todo_ticks: lines2d(root, todo_ticks, (.18,.22,.28,1), 1)
+        if done_ticks: lines2d(root, done_ticks, (.45,.55,.65,1), 1)
+        samples = [(1.5, levels[1], '确认')] + [(2.5 + k, levels[2 + k], str(levels[2 + k])) for k in range(8)] \
+                  + [(10.5, levels[10], '停=1')]
+        for s, v, lab in samples:
+            if s <= t:
+                y = hi if v else lo
+                rect2d(root, X(s) - 4, y - 4, X(s) + 4, y + 4, YELLOW)
+                self.text(lab, X(s), 76, 10, YELLOW, align=TextNode.ACenter, parent=root)
+        if 1 <= t < 1.5:
+            self.text('下降沿', X(1) + 6, 78, 10, ORANGE, parent=root)
+        lines2d(root, [[(X(t), 66), (X(t), 146)]], YELLOW, 2)
+        # 接收移位寄存器：右移，新位从左边进
+        self.text('接收移位寄存器（每采一位右移一格，新位从左边进）', 18, 166, 12, WHITE, parent=root)
+        m = sum(1 for k in range(8) if 2.5 + k <= t)
+        data = uart_bits(byte)[1:9]
+        for j in range(8):
+            x0 = self.BIT_X0 + j * 44
+            v = data[m - 1 - j] if j < m else None
+            new = j == 0 and m and b['phase'] == 'data' and t - (2.5 + m - 1) < .6
+            rect2d(root, x0, 176, x0 + 40, 204, YELLOW if new else (.16,.22,.30,1) if v is not None else (.08,.10,.14,1))
+            if v is not None:
+                self.text(str(v), x0 + 20, 196, 15, INK if new else WHITE, align=TextNode.ACenter, parent=root)
+            self.text(f'bit{7 - j}', x0 + 20, 218, 9, DIM, align=TextNode.ACenter, parent=root)
+        if m == 8:
+            self.text(f'= 0x{byte:02X}', self.BIT_X0 + 8 * 44 + 10, 196, 16, YELLOW, parent=root)
+        # RX FIFO 与状态标志
+        pushed = t >= 10.6
+        self.text('RX FIFO', 560, 166, 12, GREEN, parent=root)
+        for k in range(5):
+            x0 = 560 + k * 35
+            on = pushed and k == 0
+            rect2d(root, x0, 176, x0 + 32, 204, GREEN if on else (.08,.10,.14,1))
+            if on:
+                self.text(f'{byte:02X}', x0 + 16, 195, 12, INK, align=TextNode.ACenter, parent=root)
+        self.flag(root, 560, 240, 'RX_EMPTY', 0 if pushed else 1, YELLOW, '有字节了' if pushed else '队列空')
+        self.flag(root, 560, 262, 'FE', 0, RED, '帧错误：无')
+        start_ok = t >= 1.5
+        self.text('起始位：' + ('半位处仍为低 → 确认，开始数位' if start_ok else '等待下降沿……'),
+                  18, 244, 12, GREEN if start_ok else MUTED, parent=root)
+        spin = self.spins(t * us)
+        self.code_box(root, [
+            ('while (n < need) {', '', False),
+            ('    if (UART_GET_RX_EMPTY(uart))', '← 读状态寄存器的 RX_EMPTY 位', True),
+            ('        continue;', f'← 还没字节，再转一圈（已转约 {spin} 圈）' if not pushed
+             else '← 下一圈就会读到 0，往下走（见下一格）', True),
+            ('    uint8_t b = UART_READ(uart);', '这一步还没执行', False)])
+
+    def bits_read(self, root, b):
+        r = b['t']
+        self.text(f'{b["uart"]}：CPU 经总线读走一个字节', 18, 60, 13, CYAN, parent=root)
+        self.block(root, 18, 80, 158, 140, 'RX FIFO', GREEN, '队头')
+        self.block(root, 188, 80, 298, 140, '数据寄存器 DR', GREEN, '读它 = 出队')
+        self.block(root, 328, 80, 428, 140, 'APB 总线', MUTED)
+        self.block(root, 458, 80, 578, 140, 'CPU 寄存器', YELLOW, '变量 b')
+        self.block(root, 608, 80, 737, 140, f'SRAM {b["buf"]}[]', PURPLE, '下一格才存')
+        lines2d(root, [[(158,110),(188,110)], [(298,110),(328,110)], [(428,110),(458,110)]], DIM, 2)
+        path = [(88, 110), (243, 110), (378, 110), (518, 110)]
+        x, y = self.along(path, r)
+        if r < 1:
+            self.token(root, x, y, f'{b["byte"]:02X}', GREEN)
+        else:
+            self.text(f'b = 0x{b["byte"]:02X}', 518, 116, 15, YELLOW, align=TextNode.ACenter, parent=root)
+        empty = 1 if r >= .3 else 0
+        self.text('UART 状态寄存器（教学简化：各家芯片的位名和位置不同）', 18, 168, 12, WHITE, parent=root)
+        for i, (name, v) in enumerate([('TX_COMPLETE', 1), ('FIFO_EMPTY', 1), ('TX_FULL', 0),
+                                        ('FE', 0), ('RX_EMPTY', empty)]):
+            x0 = 18 + i * 144
+            on = name == 'RX_EMPTY'
+            rect2d(root, x0, 178, x0 + 138, 222, (.20,.16,.09,1) if on else (.09,.13,.19,1))
+            self.text(name, x0 + 69, 196, 11, YELLOW if on else MUTED, align=TextNode.ACenter, parent=root)
+            self.text(str(v), x0 + 69, 216, 15, YELLOW if on else WHITE, align=TextNode.ACenter, parent=root)
+        self.text('RX_EMPTY 由硬件自动维护：FIFO 进字节变 0，读空了变回 1。CPU 只读不写。', 18, 248, 11, MUTED, parent=root)
+        self.code_box(root, [
+            ('    if (UART_GET_RX_EMPTY(uart))', '← 读到 0：条件不成立', r < .3),
+            ('        continue;', '← 跳过，不执行', False),
+            ('    uint8_t b = (uint8_t)UART_READ(uart);', f'← 读 DR，b = 0x{b["byte"]:02X}' if r >= .75 else '← 读 DR……', r >= .3)])
+
+    def bits_hdr(self, root, b):
+        raw = self.packet_bytes
+        t = b['t']
+        n = min(4, math.ceil(t))
+        k = n - 1
+        self.text('read_packet() 的包头状态机：n 既是计数，也是「对上了几个」', 18, 60, 13, CYAN, parent=root)
+        self.text('HDR[n]', 18, 98, 12, MUTED, parent=root)
+        self.text('收到的 b', 18, 140, 12, MUTED, parent=root)
+        for i in range(4):
+            x0 = 110 + i * 70
+            rect2d(root, x0, 78, x0 + 60, 106, (.16,.22,.30,1))
+            self.text(f'{(0xFF, 0xFF, 0xFD, 0x00)[i]:02X}', x0 + 30, 98, 14, WHITE, align=TextNode.ACenter, parent=root)
+            got = i < t
+            rect2d(root, x0, 120, x0 + 60, 148, ORANGE if got and i == k else (.16,.22,.30,1) if got else (.08,.10,.14,1))
+            if got:
+                self.text(f'{raw[i]:02X}', x0 + 30, 140, 14, INK if i == k else WHITE, align=TextNode.ACenter, parent=root)
+        xn = 110 + min(n, 3) * 70 + 30
+        poly2d(root, [(xn - 7, 168), (xn + 7, 168), (xn, 156)], YELLOW)
+        self.text(f'n = {n}', xn, 184, 12, YELLOW, align=TextNode.ACenter, parent=root)
+        if k >= 0:
+            i = k
+            self.text(f'b = {raw[i]:02X} 等于 HDR[{i}] = {(0xFF, 0xFF, 0xFD, 0x00)[i]:02X} → buf[{i}] = b，n 变成 {i + 1}',
+                      400, 98, 12, GREEN, parent=root)
+        self.text('规则', 400, 124, 12, WHITE, parent=root)
+        for j, line in enumerate(['对上：buf[n++] = b，n 加 1',
+                                  '对不上，b 是 FF：n = (n == 2) ? 2 : 1',
+                                  '对不上，b 不是 FF：n = 0，从头再找']):
+            self.text(line, 400, 146 + j * 20, 11, MUTED, parent=root)
+        # 重新同步的例子（静态）
+        self.text('例：线上多了噪声字节和一个 FF，看 n 怎么走', 18, 232, 12, WHITE, parent=root)
+        seq = [0x12, 0xFF, 0xFF, 0xFF, 0xFD, 0x00, 0x01]
+        ns = [0, 1, 2, 2, 3, 4, 5]
+        for i, (v, nv) in enumerate(zip(seq, ns)):
+            x0 = 18 + i * 64
+            bad = i in (0, 3)
+            rect2d(root, x0, 242, x0 + 56, 266, (.30,.12,.14,1) if bad else (.16,.22,.30,1))
+            self.text(f'{v:02X}', x0 + 28, 260, 13, WHITE, align=TextNode.ACenter, parent=root)
+            self.text(f'n={nv}', x0 + 28, 284, 11, RED if bad else MUTED, align=TextNode.ACenter, parent=root)
+        self.text('12：对不上且不是 FF → n=0', 470, 254, 11, MUTED, parent=root)
+        self.text('第 3 个 FF：n 已是 2 → 留在 2', 470, 274, 11, MUTED, parent=root)
+        self.text('这样多出来的 FF 不会让真正的包头错过。', 18, 312, 12, GREEN, parent=root)
+        self.text('n ≥ 4 以后不再比对，字节直接存：ID、长度、指令、参数、CRC。', 18, 336, 12, WHITE, parent=root)
+        self.text('注意：这里只认包头，不算 CRC；MCU 原样转发，CRC 由电机检查。', 18, 360, 12, YELLOW, parent=root)
+
+    def bits_len(self, root, b):
+        raw = self.packet_bytes
+        L, Hb = raw[5], raw[6]
+        length = L | (Hb << 8)
+        need = 7 + length
+        stage = ['calc', 'range', 'done'].index(b['phase'])
+        self.text('长度字段决定整包有多少字节', 18, 60, 13, CYAN, parent=root)
+        for i in range(min(len(raw), 16)):
+            x0 = 18 + i * 45
+            on = i in (5, 6)
+            got = stage == 2 or i < 7
+            rect2d(root, x0, 74, x0 + 40, 100, ORANGE if on else (.16,.22,.30,1) if got else (.08,.10,.14,1))
+            if got:
+                self.text(f'{raw[i]:02X}', x0 + 20, 93, 13, INK if on else WHITE, align=TextNode.ACenter, parent=root)
+            self.text(f'[{i}]', x0 + 20, 114, 9, ORANGE if on else DIM, align=TextNode.ACenter, parent=root)
+        self.text('包头 4 + ID 1 + 长度 2 = 7', 18 + 3.5 * 45 - 40, 132, 10, MUTED, align=TextNode.ACenter, parent=root)
+        lines2d(root, [[(18, 120), (18 + 7 * 45 - 5, 120)]], MUTED, 1)
+        self.text(f'长度 = buf[5] | (buf[6] << 8) = 0x{L:02X} | (0x{Hb:02X} << 8) = {length}', 18, 160, 14, WHITE, parent=root)
+        self.text(f'need = 7 + {length} = {need}', 18, 184, 14, YELLOW, parent=root)
+        self.text('低位在前（小端）：先到的 buf[5] 是低 8 位。', 400, 184, 11, MUTED, parent=root)
+        if stage >= 1:
+            x = lambda v: 60 + v * 8.4
+            y = 236
+            lines2d(root, [[(x(0), y), (x(80), y)]], DIM, 2)
+            rect2d(root, x(10), y - 7, x(64), y + 7, (.10,.30,.20,1))
+            for v in (0, 10, 64, 80):
+                self.text(str(v), x(v), y + 24, 10, MUTED, align=TextNode.ACenter, parent=root)
+            poly2d(root, [(x(need) - 7, y - 18), (x(need) + 7, y - 18), (x(need), y - 6)], YELLOW)
+            self.text(f'need = {need}', x(need), y - 22, 11, YELLOW, align=TextNode.ACenter, parent=root)
+            self.text('合法区间 10～64（PKT_MAX）', x(37), y + 4, 10, GREEN, align=TextNode.ACenter, parent=root)
+            ok = 10 <= need <= 64
+            self.text(('在区间内 → 继续收' if ok else '越界 → return 0'), 18, 290, 13, GREEN if ok else RED, parent=root)
+        if stage == 2:
+            self.text(f'n = {need}，need = {need}：while (n < need) 不成立 → return {need}', 300, 290, 13, YELLOW, parent=root)
+        self.code_box(root, [
+            ('need = 7u + (buf[5] | (buf[6] << 8));', f'← n == 7 时只算一次，= {need}', stage == 0),
+            ('if (need < 10u || need > PKT_MAX) return 0;', '← 防止写出数组', stage == 1),
+            ('return n;', '← 整包收齐', stage == 2)], y0=304, title='')
+
+    def bits_drain(self, root, b):
+        r = b['t']
+        stale = [0xFD, 0x00]
+        left = [v for i, v in enumerate(stale) if r < (.35, .7)[i]]
+        self.text('UART1 RX FIFO：发送前先读空', 18, 60, 13, ORANGE, parent=root)
+        self.block(root, 18, 80, 258, 140, 'RX FIFO（举例的残留字节）', GREEN)
+        for k in range(4):
+            x0 = 30 + k * 54
+            v = left[k] if k < len(left) else None
+            rect2d(root, x0, 104, x0 + 46, 128, GREEN if v is not None else (.08,.10,.14,1))
+            if v is not None:
+                self.text(f'{v:02X}', x0 + 23, 121, 12, INK, align=TextNode.ACenter, parent=root)
+        self.block(root, 330, 80, 450, 140, 'CPU', YELLOW, '读出不保存')
+        self.block(root, 540, 80, 680, 140, '丢弃', RED, '(void)')
+        lines2d(root, [[(258, 110), (330, 110)], [(450, 110), (540, 110)]], DIM, 2)
+        for i, v in enumerate(stale):
+            t0 = (.05, .4)[i]
+            rr = (r - t0) / .3
+            if 0 <= rr < 1:
+                x, y = self.along([(57 + 0 * 54, 116), (390, 110), (610, 110)], rr)
+                self.token(root, x, y, f'{v:02X}', RED)
+        empty = 1 if not left else 0
+        self.flag(root, 18, 176, 'RX_EMPTY', empty, YELLOW, '读空了，循环结束' if empty else '还有字节，再读一个')
+        for i, line in enumerate(['残留字节从哪来：上一次回包超时之后才到，或者上电时线上的干扰。',
+                                  '正常情况下 FIFO 本来就是空的，这个循环一次都不执行。',
+                                  '不清掉的话，等会儿收回包时会先读到它们，包头对不上。']):
+            self.text(line, 18, 210 + i * 20, 12, WHITE if i < 2 else MUTED, parent=root)
+        self.code_box(root, [
+            ('while (!UART_GET_RX_EMPTY(MOTOR_UART))', '← 还有字节吗？', True),
+            ('    (void)UART_READ(MOTOR_UART);', '← 读出来，不保存', bool(left) or r < .75),
+            ('gpio_write_dir(1);', '下一格', False)])
+
+    def bits_gpio(self, root, b):
+        r = b['t']
+        set_ = r >= .45
+        on = r >= .65
+        self.text('gpio_write_dir(1)：从一条写寄存器指令到引脚电压', 18, 60, 13, PURPLE, parent=root)
+        self.block(root, 18, 80, 118, 140, 'CPU', YELLOW, '写 1')
+        self.block(root, 148, 80, 238, 140, '总线', MUTED)
+        lines2d(root, [[(118, 110), (148, 110)], [(238, 110), (268, 110)]], DIM, 2)
+        self.text('GPIO 输出数据寄存器', 268, 84, 11, PURPLE, parent=root)
+        for k in range(8):
+            x0 = 268 + k * 26
+            bit = 7 - k
+            dir_bit = bit == 3
+            v = (1 if set_ else 0) if dir_bit else 0
+            rect2d(root, x0, 94, x0 + 23, 120, (PURPLE if v else (.20,.16,.30,1)) if dir_bit else (.10,.12,.16,1))
+            self.text(str(v), x0 + 11.5, 113, 12, INK if v else (WHITE if dir_bit else DIM), align=TextNode.ACenter, parent=root)
+            self.text(str(bit), x0 + 11.5, 134, 9, PURPLE if dir_bit else DIM, align=TextNode.ACenter, parent=root)
+        self.text('第 3 位 = DIR（举例），其他位不动', 268, 152, 10, MUTED, parent=root)
+        if r < .45:
+            x, y = self.along([(68, 110), (193, 110), (268 + 4 * 26 + 11, 107)], r / .45)
+            self.token(root, x, y, '1', PURPLE, w=22)
+        # 推挽驱动
+        cx = 600
+        lines2d(root, [[(372, 107), (cx - 60, 107), (cx - 60, 230), (cx - 30, 230)]], PURPLE if set_ else DIM, 2)
+        self.text('3.3V', cx, 74, 12, YELLOW, align=TextNode.ACenter, parent=root)
+        lines2d(root, [[(cx - 20, 80), (cx + 20, 80)], [(cx, 80), (cx, 150)]], YELLOW, 2)
+        up_col, dn_col = (YELLOW if on else DIM), (DIM if on else GREEN)
+        rect2d(root, cx - 26, 150, cx + 26, 186, (.30,.24,.08,1) if on else (.10,.12,.16,1))
+        self.text('上管 ' + ('导通' if on else '关断'), cx, 173, 11, up_col, align=TextNode.ACenter, parent=root)
+        lines2d(root, [[(cx, 186), (cx, 274)]], YELLOW if on else DIM, 2)
+        rect2d(root, cx - 26, 274, cx + 26, 310, (.08,.24,.16,1) if not on else (.10,.12,.16,1))
+        self.text('下管 ' + ('关断' if on else '导通'), cx, 297, 11, dn_col, align=TextNode.ACenter, parent=root)
+        lines2d(root, [[(cx, 310), (cx, 340)], [(cx - 20, 340), (cx + 20, 340)]], GREEN, 2)
+        self.text('GND', cx, 358, 12, GREEN, align=TextNode.ACenter, parent=root)
+        lines2d(root, [[(cx, 230), (720, 230)]], YELLOW if on else (.42,.36,.58,1), 3)
+        rect2d(root, 714, 222, 730, 238, (.78,.80,.84,1))
+        self.text('DIR_GPIO', 722, 214, 11, PURPLE, align=TextNode.ACenter, parent=root)
+        self.text(('约 3.3V' if on else '约 0V'), 722, 260, 13, YELLOW if on else GREEN, align=TextNode.ACenter, parent=root)
+        self.text('→ 缓冲器 1 脚、7 脚', 737, 280, 10, MUTED, align=TextNode.ARight, parent=root)
+        for i, line in enumerate(['推挽输出：上下两个开关管一次只开一个。',
+                                  '位 = 1：上管通，引脚接到 3.3V；',
+                                  '位 = 0：下管通，引脚接到 GND。',
+                                  '方向寄存器早在 board_init() 里',
+                                  '设成了「输出」，这里只改输出值。',
+                                  '整个过程只要几个时钟周期（≈ 0.1µs）。']):
+            self.text(line, 18, 190 + i * 22, 12, WHITE if i < 3 else MUTED, parent=root)
+
+    def bits_tx(self, root, b):
+        phase, t, byte = b['phase'], b['t'], b['byte']
+        us = 1e6 / b['baud']
+        X = self.bx
+        stage = ['full', 'write', 'load', 'shift'].index(phase)
+        self.text(f'{b["uart"]} 发送器 · {b["baud"]} bps · 1 位 = {us:.1f}µs', 18, 60, 13, ORANGE, parent=root)
+        self.block(root, 18, 76, 98, 136, 'CPU', YELLOW)
+        self.block(root, 112, 76, 196, 136, '数据寄存器', ORANGE, '写它 = 入队')
+        # FIFO：队头在右
+        queue = []
+        if stage == 1 and t >= 1:
+            queue = [byte]
+        elif stage == 2:
+            queue = list(b['queue']) if t < .5 else list(b['queue'][1:])
+        elif stage == 3:
+            queue = list(b['queue'][1:])
+        self.text('TX FIFO（队头在右）', 210, 84, 10, ORANGE, parent=root)
+        for k in range(7):
+            x0 = 210 + (6 - k) * 30
+            v = queue[k] if k < len(queue) else None
+            rect2d(root, x0, 94, x0 + 27, 122, ORANGE if v is not None else (.08,.10,.14,1))
+            if v is not None:
+                self.text(f'{v:02X}', x0 + 13.5, 113, 11, INK, align=TextNode.ACenter, parent=root)
+        if len(queue) > 7:
+            self.text(f'…还有 {len(queue) - 7} 个', 210, 136, 9, MUTED, parent=root)
+        # 发送移位寄存器：[停][b7..b0][起]，起始位在最右，先出去
+        frame = [1] + [(byte >> k) & 1 for k in range(7, -1, -1)] + [0]
+        names = ['停'] + [f'b{k}' for k in range(7, -1, -1)] + ['起']
+        sent = max(0, min(10, int(t - 1))) if stage == 3 else 0
+        loaded = stage == 3 or (stage == 2 and t >= .6)
+        self.text('发送移位寄存器（右移，最右一位上线）', 430, 84, 10, ORANGE, parent=root)
+        for j in range(10):
+            x0 = 430 + j * 28
+            src = j - sent
+            v = frame[src] if loaded and 0 <= src < 10 else None
+            out = src == 9 and stage == 3
+            rect2d(root, x0, 94, x0 + 25, 122, YELLOW if out else (.16,.22,.30,1) if v is not None else (.08,.10,.14,1))
+            if v is not None:
+                self.text(str(v), x0 + 12.5, 114, 13, INK if out else WHITE, align=TextNode.ACenter, parent=root)
+                self.text(names[src], x0 + 12.5, 137, 10, YELLOW if names[src] in ('起', '停') else DIM,
+                          align=TextNode.ACenter, parent=root)
+        self.pin(root, 722, 108, '', ORANGE, left=False)
+        self.text(b['pin'], 722, 150, 10, ORANGE, align=TextNode.ACenter, parent=root)
+        lines2d(root, [[(98, 106), (112, 106)], [(196, 106), (210, 106)], [(420, 106), (430, 106)], [(710, 106), (715, 106)]], DIM, 2)
+        if stage == 1 and t < 1:
+            x, y = self.along([(58, 106), (154, 106), (210 + 6 * 30 + 13.5, 108)], t)
+            self.token(root, x, y, f'{byte:02X}', ORANGE)
+        if stage == 2 and t < .6:
+            x, y = self.along([(210 + 6 * 30 + 13.5, 108), (430 + 4.5 * 28, 108)], t / .6)
+            self.token(root, x, y, f'{byte:02X}', ORANGE)
+        # 引脚波形（只在移出阶段）
+        hi, lo = 168, 190
+        self.text(f'{b["pin"]} 波形', 18, 184, 11, ORANGE, parent=root)
+        wire = [1] + [0] + [(byte >> k) & 1 for k in range(8)] + [1, 1]
+        tt = t if stage == 3 else 1
+        if stage < 3:
+            lines2d(root, [[(X(0), hi), (X(12), hi)]], (.35,.30,.22,1), 2)
+            self.text('空闲：一直是高电平', X(6), hi - 6, 10, MUTED, align=TextNode.ACenter, parent=root)
+        pts = []
+        for k, v in enumerate(wire):
+            if k >= tt:
+                break
+            yv = hi if v else lo
+            pts += [(X(k), yv), (X(min(k + 1, tt)), yv)]
+        if len(pts) > 1:
+            lines2d(root, [pts], ORANGE, 3)
+        if stage == 3:
+            lines2d(root, [[(X(k), 160), (X(k), 198)] for k in range(1, 12) if k <= t], (.45,.40,.25,1), 1)
+            lines2d(root, [[(X(t), 156), (X(t), 202)]], YELLOW, 2)
+            wn = ['空闲', '起'] + [f'b{k}' for k in range(8)] + ['停', '空闲']
+            for k, n in enumerate(wn):
+                if k < t:
+                    self.text(n, X(k + .5), 212, 9, MUTED, align=TextNode.ACenter, parent=root)
+        tx_full = 0
+        fifo_empty = 0 if queue else 1
+        busy = loaded and not (stage == 3 and t >= 11)
+        tx_done = 0 if (busy or queue) else 1
+        if stage == 0:
+            fifo_empty, tx_done = 1, 1
+        self.flag(root, 18, 240, 'TX_FULL', tx_full, RED, '不满，可以写' if stage == 0 else '')
+        self.flag(root, 210, 240, 'FIFO_EMPTY', fifo_empty, YELLOW)
+        self.flag(root, 400, 240, 'TX_COMPLETE', tx_done, GREEN)
+        div = round(self.CPU_MHZ * 1e6 / 16 / b['baud'])
+        self.text(f'波特率发生器：48 MHz ÷ 16 ÷ {div} → 每 {us:.1f}µs 一拍（举例时钟）', 18, 262, 11, MUTED, parent=root)
+        if stage == 0:
+            rows = [('while (UART_IS_TX_FULL(uart)) {}', '← 读到 0：不满，马上往下', True),
+                    ('UART_WRITE(uart, p[i]);', '下一格', False)]
+        elif stage == 1:
+            rows = [('while (UART_IS_TX_FULL(uart)) {}', '', False),
+                    ('UART_WRITE(uart, p[i]);', f'← 0x{byte:02X} 写进数据寄存器 → FIFO 队尾', True)]
+        elif stage == 2:
+            rows = [('for (i = 1; i < len; i++) UART_WRITE(...)', '← CPU 早已把后面的字节写完', True),
+                    ('（硬件）FIFO 队头 → 移位寄存器，加起始位和停止位', '没有代码参与', True)]
+        else:
+            spin = self.spins(max(0, t - 1) * us)
+            rows = [('（硬件）每拍右移一位：起 b0 b1 … b7 停', f'已发 {sent} / 10 位', True),
+                    ('while (!uart_tx_complete(MOTOR_UART)) {}' if b['uart'] == 'UART1' else 'for (…) 下一个字节',
+                     f'CPU 在这里空转（约 {spin} 圈）' if b['uart'] == 'UART1' else '', b['uart'] == 'UART1')]
+        self.code_box(root, rows, y0=284)
+
+    def bits_timeout(self, root, b):
+        r = b['t']
+        elapsed = .5 * r
+        self.text('read_packet(MOTOR_UART, g_rx, 20)：带超时地等第一个字节', 18, 60, 13, GREEN, parent=root)
+        x = lambda ms: 60 + ms * 32
+        y = 110
+        rect2d(root, x(0), y - 10, x(20), y + 10, (.08,.10,.14,1))
+        rect2d(root, x(0), y - 10, x(max(.08, elapsed)), y + 10, GREEN)
+        lines2d(root, [[(x(20), y - 18), (x(20), y + 18)]], RED, 2)
+        for v in (0, 5, 10, 15, 20):
+            self.text(f'{v}ms', x(v), y + 34, 10, RED if v == 20 else MUTED, align=TextNode.ACenter, parent=root)
+        self.text('超时线', x(20), y - 22, 11, RED, align=TextNode.ACenter, parent=root)
+        self.text(f'实际经过 {elapsed:.2f} ms', 60, 170, 14, GREEN, parent=root)
+        self.text('millis() 每 1ms 才加 1，所以此刻 millis() - t0 读出来还是 0。', 60, 194, 12, MUTED, parent=root)
+        arrived = r >= 1
+        self.flag(root, 60, 228, 'RX_EMPTY', 0 if arrived else 1, YELLOW,
+                  '电机回包的第一个字节到了' if arrived else '回包还没到')
+        self.text('电机约 0.5ms 后开始回话（回复延时）。远小于 20ms，所以不会超时。', 60, 256, 12, WHITE, parent=root)
+        self.code_box(root, [
+            ('if (timeout_ms && (millis() - t0) > timeout_ms)', '← 0 > 20 ? 否，不返回', True),
+            ('    return 0;', '电机不回话时才会走到这里', False),
+            ('if (UART_GET_RX_EMPTY(uart)) continue;', '← 收到了，往下读' if arrived else f'← 空转（约 {self.spins(elapsed * 1000)} 圈）', True)],
+            y0=272)
+
     def flash_lens(self):
         self.lens_frame['frameColor'] = (.20,.15,.33,1)
         self.timers.append((time.monotonic() + .9, lambda: self.lens_frame.__setitem__('frameColor', CARD)))
 
     # ------------------------------------------------------------------ 代码与变量
-    def show_code(self, step, intro=False, note=''):
+    def show_code(self, step, intro=False, note='', tag=None):
         title, _, _, func, where = STEPS[step]
+        if tag:
+            func, where = MICRO_CODE.get(tag, (func, where))
+            where = f'[{tag}] {where}'
         self.code_where.setText(where + ('' if not note else '   ' + note))
         start, end = self.fw_functions.get(func, (1, len(self.fw_lines)))
-        blocks = list(self.fw_tags.get(step, []))
+        blocks = list(self.fw_tags.get(tag or step, []))
         focus = [b for b in blocks if start <= b[0] <= end] or blocks
         hl = set() if intro else {n for b in blocks for n in b}
         center = focus[0][0] if focus else start
@@ -1035,6 +1621,9 @@ class Demo(ShowBase):
                    'rx_i': None, 'tx_active': None, 'rx_active': None, 'pc_rx': []}
         self.mcu = {'txq': [], 'shift1': None}
         self.cpu_note = '等待'
+        self.micro_queue, self.micro_done = [], set()
+        self.bits = {'mode': 'idle', 'phase': '', 't': 0}
+        self.bits_anim = None
 
     def refresh_vars(self):
         f = self.fw
@@ -1173,12 +1762,17 @@ class Demo(ShowBase):
         self.flights = []
         self.timers = []
         self.wave_anim = None
+        self.bits_anim = None
 
     def settle(self):
         """跳到下一步前，把上一步还在飞的字节和延时事件立刻做完。"""
         for _ in range(200):
-            if not self.flights and not self.timers and not self.wave_anim:
+            if not self.flights and not self.timers and not self.wave_anim and not self.bits_anim:
                 break
+            if self.bits_anim:
+                self.bits['t'] = self.bits_anim[3]
+                self.bits_anim = None
+                if self.lens_tab == 'bits': self.draw_lens()
             if self.wave_anim:
                 *_, done = self.wave_anim
                 self.wave_anim = None
@@ -1216,6 +1810,7 @@ class Demo(ShowBase):
         self.response = None
         self.events = []
         self.step_index = -1
+        self.started = time.monotonic()
         self.running = False
         self.finished = False
         self.step_done_at = 0
@@ -1279,12 +1874,58 @@ class Demo(ShowBase):
         self.play_btn['text'] = '暂停' if self.running else '自动播放'
         self.step_done_at = 0
 
-    def record(self, step, title=None, body=None, term=None):
+    def record(self, step, title=None, body=None, term=None, micro=None):
         t, b, tm, *_ = STEPS[step]
         title, body, term = title or t, body if body is not None else b, term if term is not None else tm
-        self.events.append({'step': step, 'elapsed_s': round(time.monotonic() - self.started, 3),
-                            'title': title, 'detail': body, 'firmware_lines': self.hl_lines})
-        self.set_step_text(f'{step:02d}/12  {title}', body, term)
+        event = {'step': step, 'elapsed_s': round(time.monotonic() - self.started, 3),
+                 'title': title, 'detail': body, 'firmware_lines': self.hl_lines}
+        label = f'{step:02d}/12'
+        if micro:
+            event['micro'] = micro[0]
+            label += f' · 细节 {micro[1]}/{MICRO_COUNT[step]}'
+        self.events.append(event)
+        self.set_step_text(f'{label}  {title}', body, term)
+
+    def run_micro(self, step, item):
+        """播放一格 MCU 内部细节：位级视图 + 对应代码行，不推进大步骤。"""
+        tag, title, body, term, mode, phase, anim = item
+        raw, f = self.packet_bytes, self.fw
+        b = {'mode': mode, 'phase': phase, 't': anim[1] if anim else 0, 'uart': 'UART0', 'baud': 115200,
+             'pin': 'HOST_RX', 'byte': raw[0], 'buf': 'g_buf', 'queue': []}
+        if step == 5:
+            b.update(uart='UART1', baud=57600, pin='ACT_TX', queue=list(raw))
+        elif step == 10:
+            b.update(uart='UART1', baud=57600, pin='ACT_RX', byte=self.response[0], buf='g_rx')
+        elif step == 11:
+            b.update(pin='HOST_TX', byte=self.response[0])
+        if anim:
+            b['t'] = anim[0]
+            self.bits_anim = (time.monotonic(), anim[2] / self.speed, anim[0], anim[1], None)
+        self.bits = b
+        self.cpu_note = MICRO_CPU.get(tag, self.cpu_note)
+        if tag == '02d':
+            f['buf'], f['n'], f['b'], f['tx_active'] = [None] * len(raw), 0, raw[0], 0
+        elif tag == '02e':
+            f['buf'][0], f['n'], f['i'] = raw[0], 1, 0
+        elif tag == '05b':
+            f['b'], f['i'] = raw[0], 0
+        self.set_lens('bits')
+        self.show_code(step, tag=tag)
+        k = [it[0] for it in MICRO[step]].index(tag) + 1
+        self.record(step, title, body, term, micro=(tag, k))
+        self.refresh_vars()
+
+    def paint_detail(self):
+        self.detail_btn['text'] = '细化 MCU：开' if self.detail else '细化 MCU：关'
+        self.detail_btn['frameColor'] = (.30,.22,.42,1) if self.detail else (.10,.15,.21,1)
+
+    def toggle_detail(self):
+        self.detail = not self.detail
+        if not self.detail:
+            self.micro_queue = []
+        self.paint_detail()
+        if self.lens_tab == 'bits':
+            self.draw_lens()
 
     def stop(self, note, no_response=True):
         self.finished = True
@@ -1301,6 +1942,13 @@ class Demo(ShowBase):
         if self.finished:
             if not self.load_packet(): return
         self.settle()
+        upcoming = self.step_index + 2
+        if self.detail and not self.micro_queue and upcoming in MICRO and upcoming not in self.micro_done:
+            self.micro_done.add(upcoming)
+            self.micro_queue = list(MICRO[upcoming])
+        if self.micro_queue:
+            self.run_micro(upcoming, self.micro_queue.pop(0))
+            return
         self.step_index += 1
         step = self.step_index + 1
         f, m = self.fw, self.mcu
@@ -1317,6 +1965,9 @@ class Demo(ShowBase):
             self.show_code(2)
             f['buf'], f['n'], f['need'] = [None] * len(raw), 0, 7
             self.cpu_note = 'UART_READ'
+            first = 1 if 2 in self.micro_done else 0   # 第 1 个字节已在细节格里逐位看过
+            if first:
+                f['buf'][0], f['n'] = raw[0], 1
 
             def in_sram(i):
                 f['buf'][i] = raw[i]; f['n'] = i + 1; f['b'] = raw[i]; f['i'] = i
@@ -1327,8 +1978,8 @@ class Demo(ShowBase):
                 f['tx_active'] = i
                 self.fly([labels[i]], self.path_pc_in(i), CYAN, travel=1.1, space='2d',
                          on_arrive=lambda _, i=i: in_sram(i))
-            self.fly(labels, 'usb', CYAN, gap=.32, travel=1.0, on_arrive=at_mcu)
-            self.record(2)
+            self.fly(labels[first:], 'usb', CYAN, gap=.32, travel=1.0, on_arrive=lambda i: at_mcu(i + first))
+            self.record(2, body=STEPS[2][1] + ('\n第 1 个字节已在细节里逐位看过，这里把其余字节走完；每个都重复 02a～02e。' if first else ''))
         elif step == 3:
             f['i'] = None; f['tx_active'] = None
             self.cpu_note = 'n == need ?'
@@ -1599,13 +2250,23 @@ class Demo(ShowBase):
             if r >= 1:
                 self.wave_anim = None
                 if done: done()
+        if self.bits_anim:
+            start, dur, t0, t1, done = self.bits_anim
+            r = min(1, (now - start) / dur) if dur > 0 else 1
+            t = t0 + (t1 - t0) * r
+            if r >= 1 or abs(t - self.bits['t']) >= 1 / 16:   # 一个采样拍重画一次
+                self.bits['t'] = t
+                if self.lens_tab == 'bits': self.draw_lens()
+            if r >= 1:
+                self.bits_anim = None
+                if done: done()
         busy = False
         for fl in list(self.flights):
             if fl.update(now):
                 fl.destroy(); self.flights.remove(fl)
             else:
                 busy = True
-        busy = busy or bool(self.timers) or bool(self.wave_anim)
+        busy = busy or bool(self.timers) or bool(self.wave_anim) or bool(self.bits_anim)
         if self.running:
             if busy:
                 self.step_done_at = 0
@@ -1652,6 +2313,9 @@ def freeze(app, fraction):
     if app.wave_anim:
         start, dur, *rest = app.wave_anim
         app.wave_anim = (now - dur * fraction, dur, *rest)
+    if app.bits_anim:
+        start, dur, *rest = app.bits_anim
+        app.bits_anim = (now - dur * fraction, dur, *rest)
     render(app)
     app.running = False
 
@@ -1675,6 +2339,8 @@ def main():
     folder = ROOT / 'output'
     folder.mkdir(exist_ok=True)
     shot = lambda name: app.win.saveScreenshot(Filename.fromOsSpecific(str(folder / name)))
+    app.detail = False   # 先按原来的 12 步自检；细化 MCU 的逐格自检在最后
+    app.paint_detail()
 
     def to_step(kind, n, frac=None):
         app.set_preset(kind); app.load_packet()
@@ -1754,7 +2420,32 @@ def main():
     app.reset(); run_packet(app, 'ping')
     data = json.loads(app.export().read_text(encoding='utf-8'))
     assert data['hardware_tested'] is False and len(data['steps']) == 12
-    print('GUI scenarios passed: 12 steps, MCU internals, waveform, FIFO_EMPTY fault, 90° flow, 6 faults, voltage review, invalid HEX, export.')
+
+    # 细化 MCU：逐格走完一包 Ping，每个细节格截一张图
+    app.reset()
+    app.detail = True
+    app.paint_detail()
+    app.set_preset('ping'); app.load_packet()
+    tags = []
+    for _ in range(80):
+        app.next_step()
+        last = app.events[-1] if app.events else {}
+        if 'micro' in last and last['micro'] not in tags:
+            freeze(app, .7)
+            tags.append(last['micro'])
+            render(app); shot(f'micro-{last["micro"]}.png')
+        if app.finished: break
+    app.settle()
+    expected = [item[0] for step in sorted(MICRO) for item in MICRO[step]]
+    assert tags == expected, tags
+    for tag in expected:
+        assert app.fw_tags.get(tag), f'firmware has no [{tag}] tag'
+    assert app.fw['pc_rx'] == list(app.response) and app.fw['buf'] == list(app.packet_bytes)
+    assert sum(1 for e in app.events if 'micro' not in e) == 12
+    data = json.loads(app.export().read_text(encoding='utf-8'))
+    assert [e['micro'] for e in data['steps'] if 'micro' in e] == expected
+    print('GUI scenarios passed: 12 steps, MCU internals, waveform, FIFO_EMPTY fault, 90° flow, 6 faults, voltage review, invalid HEX, export, '
+          f'{len(expected)} MCU detail steps.')
     app.destroy()
 
 
