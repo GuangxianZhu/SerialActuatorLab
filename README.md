@@ -26,7 +26,7 @@ python -m venv .venv
 .venv/bin/python app.py
 ```
 
-Windows 也可双击 `start.cmd`。启动脚本会使用本目录或父目录的 `.venv`。中文字体可通过环境变量 `SERVO_LAB_FONT` 指向任意可用的中文字体文件。
+**Windows 最省事的办法：双击 `run.bat`。** 它会依次检查 Python（需要 3.8～3.13，推荐 3.12）、在本目录建 `.venv`、按 `requirements.txt` 用 pip 安装依赖（已装好就跳过）、跑一遍协议自检，然后启动程序；出错时窗口会停住并显示原因。`start.cmd` 保留，内容就是调用 `run.bat`。中文字体可通过环境变量 `SERVO_LAB_FONT` 指向任意可用的中文字体文件。
 
 ## 第一次操作
 
