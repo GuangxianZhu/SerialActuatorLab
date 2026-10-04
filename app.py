@@ -190,6 +190,70 @@ MICRO_CPU = {'01a': 'board_init()', '02a': '空等 RX', '02b': '空等 RX', '02c
              '05a': '查 TX_FULL', '05b': 'UART_WRITE', '05c': '继续写 FIFO', '05d': '继续写 FIFO',
              '10a': '等回包（带超时）', '11a': '查 TX_FULL'}
 
+# 新手版讲解：同一个比喻贯穿全程。MCU = 一间收发室：办事员（CPU）、两个收发窗口（UART）、
+# 排队传送带（FIFO）、笔记本（SRAM）。电机那根 DATA 线 = 对讲机：按住说话键（DIR=1）才能说，松开（DIR=0）才能听。
+# 每格：(白话说明, 一个新词)。开关切到「专业」时用 STEPS / MICRO 里的原文。
+EASY = {
+    1: ('【比方】电脑要给电机寄一封信，信的内容是一串数字。\n【实际】电脑把指令排成一串字节（底部 TX 那一排格子），准备发出。MCU 的办事员（CPU）这时什么也不干，就守在窗口前等信。',
+        '【新词】字节：8 个 0/1 组成的一个数，写成两位 HEX，比如 FF = 255。'),
+    2: ('【比方】信一个字一个字地递进收发室：窗口先收下，放上传送带排队，办事员再一个个取下来抄进笔记本。\n【实际】每个字节经 USB 进到 MCU 的电脑侧窗口（UART0），排队后被 CPU 读走，存进内存里的 g_buf。',
+        '【新词】UART：芯片里专门负责收发串口数据的「窗口」，一个字节一个字节地收发。'),
+    3: ('【比方】信封上写着「共几页」。办事员数到这么多页，才知道信收全了。\n【实际】包的第 6、7 个字节写着后面还有多少字节。MCU 据此算出整包长度，收够了才往下走。',
+        '【新词】包：一次完整的指令，开头是固定的暗号 FF FF FD 00，结尾是校验码。'),
+    4: ('【比方】电机那根线像对讲机，同一时间只能一边说话。MCU 要说话，先按住说话键。\n【实际】MCU 把 DIR 这根线设成高电平：发送通道打开，接收通道关上。',
+        '【新词】DIR：方向控制线。1 = 我说你听，0 = 你说我听。'),
+    5: ('【比方】办事员把整封信一下子放上发送传送带，窗口再一个字一个字地念出去。\n【实际】CPU 很快就把整包写进 UART1 的发送队列；硬件每次取一个字节，拆成 0/1 一位一位送到线上。',
+        '【新词】FIFO：排队用的传送带，先放上去的先出去。'),
+    6: ('【比方】信刚放上传送带，不等于已经念完了。要等最后一个字真正念出口，才能松开说话键。\n【实际】队列空了（FIFO_EMPTY）时，最后一个字节其实还在往外发。固件要等「真正发完」（TX_COMPLETE）。',
+        '【新词】停止位：每个字节最后的那一位，表示「这个字说完了」。'),
+    7: ('【比方】话说完了，松开对讲机按键，改成听对方说。\n【实际】MCU 把 DIR 设回低电平：发送通道断开，不再占着线；接收通道打开，电机的回话能进来。',
+        '【新词】高阻：输出端相当于拔掉了插头，既不发 1 也不发 0，不干扰别人。'),
+    8: ('【比方】电机收到信，先核对收件人和校验码，没问题才照着做。\n【实际】电机检查 ID 和 CRC，然后执行：Ping 报到、Write 改设置、Read 读数值。MCU 在一旁等回信，最多等 20ms。',
+        '【新词】CRC：按整封信算出来的校验码，传错一位就对不上。'),
+    9: ('【比方】对方等你松开按键后，稍等一下再开口，免得两人同时说话。\n【实际】电机约等 0.5ms，再把回信（状态包）发到同一根线上，经接收通道进入 MCU。',
+        '【新词】状态包：电机的回信，格式和指令包一样，多一个「有没有出错」的字节。'),
+    10: ('【比方】回信也一个字一个字地进收发室，这次走的是电机侧窗口，抄进另一本笔记本。\n【实际】和第 02 步一样的过程，只是换成 UART1，存进 g_rx。用的还是同一个函数。',
+         '【新词】函数参数：同一套动作换个对象再做一遍，比如换一个窗口、换一本笔记本。'),
+    11: ('【比方】办事员把回信原封不动地转交给电脑，一个字都不改。\n【实际】CPU 把 g_rx 里的字节逐个写进电脑侧窗口（UART0），经 USB 回到电脑。',
+         '【新词】转发：MCU 只负责传话，不自己看懂信的内容。'),
+    12: ('【比方】电脑拆开回信，检查暗号、页数和校验码都对，再看电机说了什么。\n【实际】Instruction=55 表示这是回信，Error=00 表示没出错。MCU 已经回到第 01 步，等下一封信。',
+         '【新词】Error 字节：电机告诉你「刚才那条指令执行得怎么样」，00 就是一切正常。'),
+    '01a': ('【比方】收发室开门前，先把钟调好、规定好每个窗口说话的语速。\n【实际】上电后只做一次：设置时钟，给两个 UART 定好速度（波特率），把 DIR 线设成输出，默认先「听」。',
+            '【新词】波特率：每秒发多少位。双方必须一样快，就像两个人约好语速。'),
+    '02a': ('【比方】平时线上一直是「嗯——」的长音（高电平），突然变低就是对方说「喂」：要开始了。\n【实际】接收器看到电平从高变低，等半个位的时间再看一次，确认真的是低，才开始收这个字节。',
+            '【新词】起始位：每个字节前面那一个 0，作用就是喊一声「要开始了」。'),
+    '02b': ('【比方】对方按节拍一个字一个字地念，你在每一拍的正中间听一次，记下 0 还是 1。\n【实际】每隔 1 位的时间采样一次，一共 8 次。先到的是最低位，按顺序拼成一个完整的字节。',
+            '【新词】移位寄存器：一排 8 个格子，每来一位就整体挪一格，8 位到齐就是一个字节。'),
+    '02c': ('【比方】对方说完一个字，要说「完毕」（停止位 = 1）。听到「完毕」，这个字才算数。\n【实际】最后一位是 1，字节就被放上接收传送带（FIFO），同时一盏「有信了」的灯亮起（RX_EMPTY 变 0）。',
+            '【新词】标志位：硬件用来报告状态的小灯，0/1 两种，CPU 随时可以看。'),
+    '02d': ('【比方】办事员一直在看「有信了」那盏灯。灯一亮，就去窗口把信取走。\n【实际】CPU 在循环里一遍遍检查 RX_EMPTY。一看到 0，就执行 UART_READ，从窗口取出这个字节放进变量 b。',
+            '【新词】轮询：不停地去看「到了没」。另一种做法叫中断，像装个门铃，信到了才叫你。'),
+    '02e': ('【比方】每封信开头都有固定的暗号：FF FF FD 00。对上暗号才开始记，对不上就当噪音丢掉。\n【实际】前 4 个字节要和暗号逐个比对，n 记录已经对上了几个；对上就存进笔记本，n 加 1。',
+            '【新词】包头：包开头的固定字节，用来在一串数据里找到「一封信从哪里开始」。'),
+    '03a': ('【比方】信封上写着「后面还有 3 页」。加上信封本身的 7 页，一共 10 页。\n【实际】第 6、7 个字节是长度（低位在前），整包字节数 need = 7 + 长度。',
+            '【新词】低位在前（小端）：两个字节拼一个数时，先到的是小的那一半。'),
+    '03b': ('【比方】如果信封上写「后面有 1000 页」，笔记本根本写不下，这封信肯定有问题，直接扔掉。\n【实际】need 太小（小于 10）或太大（超过 64）都不可能是正常的包，直接放弃，重新等。',
+            '【新词】数组越界：往笔记本的最后一页之后接着写，会把别的内容写坏。'),
+    '03c': ('【比方】页数数够了，信就收全了，可以去办下一件事。\n【实际】已收字节数 n 等于 need，循环结束。MCU 不检查校验码，只负责转交；检查是电机的事。',
+            '【新词】循环：一段代码反复执行，直到条件不再满足为止。'),
+    '04a': ('【比方】开口说话之前，先把信箱里上次没处理的旧信清掉，免得和新回信搞混。\n【实际】把电机侧接收队列里残留的字节读出来扔掉。正常情况下队列本来就是空的。',
+            '【新词】残留数据：上一次没来得及处理、留在队列里的旧字节。'),
+    '04b': ('【比方】墙上有一排开关，每个开关接一根线。办事员把 DIR 那个开关拨到「开」，线上就有了 3.3V。\n【实际】CPU 往 GPIO 寄存器的某一位写 1，芯片里的开关管导通，引脚电压变成 3.3V。',
+            '【新词】寄存器：芯片里的一排「开关」或「指示灯」，写它就控制硬件，读它就知道硬件状态。'),
+    '05a': ('【比方】往传送带上放东西之前，先看一眼满没满。\n【实际】CPU 查看 TX_FULL 这盏灯。现在队列是空的，不用等，马上可以放。',
+            '【新词】TX_FULL：发送队列已满的指示灯，亮着就得等一会儿。'),
+    '05b': ('【比方】办事员把信放进投递口，信就自动排到传送带末尾。\n【实际】CPU 把字节写进 UART1 的数据寄存器，硬件马上把它放到发送队列的末尾。CPU 很快，一转眼整包就都放进去了。',
+            '【新词】数据寄存器：CPU 和 UART 之间的投递口，写进去就是排队，读出来就是取走。'),
+    '05c': ('【比方】窗口取下一个字，前面加一声「喂」（起始位 0），后面加一声「完毕」（停止位 1）。\n【实际】硬件从队头取出一个字节，前后各加一位，凑成 10 位准备发送。这一步不需要代码。',
+            '【新词】8N1：8 个数据位、没有校验位、1 个停止位，是最常见的串口格式。'),
+    '05d': ('【比方】像节拍器，每响一下就念出一位：先「喂」，再 8 个 0/1，最后「完毕」。\n【实际】每 17.4µs 送出一位，10 位约 174µs 发完一个字节，再取下一个。',
+            '【新词】波特率发生器：给 UART 打节拍的计时器，决定每一位持续多久。'),
+    '10a': ('【比方】打电话等对方回话，最多等 20 秒，超时就挂断，不能一直傻等。\n【实际】CPU 每转一圈都看一下过了多久，超过 20ms 就放弃。这次电机约 0.5ms 就回话了，没有超时。',
+            '【新词】超时：给等待设一个上限，防止对方不回话时程序永远卡住。'),
+    '11a': ('【比方】把回信交给电脑之前，同样先看一眼发送传送带满没满。\n【实际】和第 05 步一样：先查 TX_FULL，再写数据寄存器。电脑侧是两根独立的线，不用切换方向。',
+            '【新词】全双工：收和发各用一根线，可以同时进行。电机那边只有一根线，叫半双工。'),
+}
+
 # 转到目标角度的流程：(kind, 标题, 为什么)
 FLOW = [
     ('ping', '① Ping', '问一声：ID 1 在吗？'),
@@ -426,6 +490,7 @@ class Demo(ShowBase):
         self.wave_anim = None
         self.bits_anim = None
         self.detail = True      # 细化 MCU：大步骤前先播放 MICRO 里的细节格
+        self.beginner = True    # 讲解：新手版（EASY）或专业版（STEPS/MICRO 原文）
         self.cpu_note = '等待'
         self.seq = None
         self.flow_state = {k: ('', '') for k, *_ in FLOW}
@@ -767,6 +832,8 @@ class Demo(ShowBase):
                                                ('恢复初始', self.reset, (.13,.21,.29,1))]):
             btn = self.button(label, x+14+i*(bw+6), y+58, bw, cmd, col, size=13, h=30)
             if label == '自动播放': self.play_btn = btn
+        self.easy_btn = self.button('', x+w-14-150, y+6, 150, self.toggle_beginner, size=12, h=24)
+        self.paint_beginner()
         self.step_title = self.text('', x+14, y+122, 17, CYAN)
         self.step_text = self.text('', x+14, y+150, 14, WHITE)
         self.term_text = self.text('', x+14, y+268, 13, YELLOW)
@@ -1875,8 +1942,16 @@ class Demo(ShowBase):
         self.step_done_at = 0
 
     def record(self, step, title=None, body=None, term=None, micro=None):
+        self.last_record = (step, title, body, term, micro)
         t, b, tm, *_ = STEPS[step]
+        if micro:
+            b, tm = body, term
         title, body, term = title or t, body if body is not None else b, term if term is not None else tm
+        easy = EASY.get(micro[0] if micro else step)
+        if self.beginner and easy and body.startswith(b):
+            body = easy[0] + body[len(b):]
+            if term == tm:
+                term = easy[1]
         event = {'step': step, 'elapsed_s': round(time.monotonic() - self.started, 3),
                  'title': title, 'detail': body, 'firmware_lines': self.hl_lines}
         label = f'{step:02d}/12'
@@ -1914,6 +1989,17 @@ class Demo(ShowBase):
         k = [it[0] for it in MICRO[step]].index(tag) + 1
         self.record(step, title, body, term, micro=(tag, k))
         self.refresh_vars()
+
+    def paint_beginner(self):
+        self.easy_btn['text'] = '讲解：新手' if self.beginner else '讲解：专业'
+        self.easy_btn['frameColor'] = (.14,.33,.30,1) if self.beginner else (.10,.15,.21,1)
+
+    def toggle_beginner(self):
+        self.beginner = not self.beginner
+        self.paint_beginner()
+        if self.events and getattr(self, 'last_record', None):   # 当前这一格立刻换成另一种讲法
+            self.events.pop()
+            self.record(*self.last_record)
 
     def paint_detail(self):
         self.detail_btn['text'] = '细化 MCU：开' if self.detail else '细化 MCU：关'
@@ -2444,6 +2530,18 @@ def main():
     assert sum(1 for e in app.events if 'micro' not in e) == 12
     data = json.loads(app.export().read_text(encoding='utf-8'))
     assert [e['micro'] for e in data['steps'] if 'micro' in e] == expected
+    assert all(e['detail'].startswith('【比方】') for e in data['steps']), '新手版讲解没有生效'
+
+    # 新手版讲解要放得下：正文最多 5 行，新词最多 2 行
+    w = STEP[2] - 28
+    for key, (body, term) in EASY.items():
+        assert len(app.wrap(body, app.step_text, w, 14).split('\n')) <= 5, f'EASY[{key!r}] 正文太长'
+        assert len(app.wrap(term, app.term_text, w, 13).split('\n')) <= 2, f'EASY[{key!r}] 新词太长'
+    assert set(EASY) == set(STEPS) | set(expected)
+    app.toggle_beginner()
+    assert not app.events[-1]['detail'].startswith('【比方】')
+    app.toggle_beginner()
+    assert app.events[-1]['detail'].startswith('【比方】')
     print('GUI scenarios passed: 12 steps, MCU internals, waveform, FIFO_EMPTY fault, 90° flow, 6 faults, voltage review, invalid HEX, export, '
           f'{len(expected)} MCU detail steps.')
     app.destroy()
