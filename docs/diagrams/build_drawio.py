@@ -1115,10 +1115,107 @@ def page_runtime():
 
 
 # ======================================================================
+# 13. Inside a typical MCU UART
+# ======================================================================
+def page_uart():
+    p = Page(L('13. MCU の UART 内部構造', '13. Inside a typical MCU UART'), 1700, 1230)
+    p.title(L('13. 一般的な MCU の UART 内部構造（汎用モデル）', '13. Internal structure of a typical MCU UART (generic model)'),
+            L('レジスタ名・FIFO 深さ・フラグ名はメーカーごとに異なります。ここでは多くの MCU に共通する要素を示します。',
+              'Register names, FIFO depth and flag names differ by vendor. This shows the blocks most MCU UARTs have in common.'))
+    cpu = p.box(30, 130, 150, 600, L('<b>CPU / DMA</b><br><br>APB / AHB<br>バスマスタ<br><br>ファームウェアが<br>レジスタを読み書き', '<b>CPU / DMA</b><br><br>APB / AHB<br>bus master<br><br>firmware reads and<br>writes the registers'), 'pc', 11, valign='top', extra='spacingTop=10;')
+    u = p.group(230, 110, 1190, 760, L('UART ペリフェラル（1 インスタンス、例 UART1）', 'UART peripheral (one instance, e.g. UART1)'), 'mcu', 14)
+    reg = p.group(250, 150, 1150, 110, L('レジスタ・インターフェース（メモリマップド）', 'Register interface (memory-mapped)'), 'white', 12, parent=u)
+    for x, w, t in [(265, 170, L('CTRL<br>有効化・TE/RE・語長・パリティ・停止ビット', 'CTRL<br>enable, TE/RE, word length, parity, stop bits')),
+                    (445, 150, L('BRR<br>ボーレート分周', 'BRR<br>baud divider')),
+                    (605, 170, L('FIFO 制御<br>しきい値', 'FIFO CTRL<br>thresholds')),
+                    (785, 170, L('INT EN<br>割り込み許可', 'INT EN<br>interrupt enables')),
+                    (965, 190, L('STATUS<br>TXE / TC / RXNE / エラー', 'STATUS<br>TXE / TC / RXNE / errors')),
+                    (1165, 220, L('DATA<br>TDR（書込）／ RDR（読出）', 'DATA<br>TDR (write) / RDR (read)'))]:
+        p.box(x, 190, w, 62, t, 'cyan', 9, parent=reg)
+    # TX path
+    p.text(270, 296, 420, 24, L('<b>送信経路 TX path</b>（CPU → ピン）', '<b>TX path</b> (CPU → pin)'), 12, False, C['tx'], parent=u)
+    ya, yh = 360, 90
+    txa = p.box(270, ya, 190, yh, L('<b>TDR</b><br>送信データ<br>書込ポート', '<b>TDR</b><br>transmit data<br>write port'), 'ls', 10, parent=u)
+    txb = p.box(520, ya, 190, yh, L('<b>TX FIFO</b><br>n バイトのキュー<br>（単純な MCU は 1 バイト）', '<b>TX FIFO</b><br>n-byte queue<br>(simple MCUs: 1 byte)'), 'ls', 10, parent=u)
+    txc = p.box(770, ya, 250, yh, L('<b>TX シフトレジスタ ＋ フレーム生成</b><br>スタート 0 → データ 8 bit（LSB 先頭）<br>→ パリティ（任意）→ ストップ 1', '<b>TX shift register + frame generator</b><br>start 0 → 8 data bits (LSB first)<br>→ parity (optional) → stop 1'), 'ls', 10, parent=u)
+    txd = p.box(1080, ya, 210, yh, L('<b>TX 出力段</b><br>アイドル = High<br>（極性反転・オープンドレイン選択可）', '<b>TX output stage</b><br>idle = High<br>(optional invert / open-drain)'), 'ls', 10, parent=u)
+    p.edge(txa, txb, '', C['tx'], 3)
+    p.edge(txb, txc, '', C['tx'], 3)
+    p.edge(txc, txd, '', C['tx'], 3)
+    for x, w, t in [(520, 190, L('TXE：FIFO に空きあり', 'TXE: FIFO has room')), (770, 250, L('TC：シフトレジスタも空＋停止ビット完了', 'TC: shift reg empty + stop bit done'))]:
+        p.box(x, 330, w, 26, t, 'yel', 9, parent=u)
+    # baud generator
+    clk = p.box(270, 490, 190, 64, L('<b>ペリフェラルクロック</b><br>PCLK', '<b>Peripheral clock</b><br>PCLK'), 'grey', 10, parent=u)
+    baud = p.box(770, 490, 250, 64, L('<b>ボーレート生成器</b><br>PCLK ÷ BRR → ボー tick ／ 16× サンプルクロック', '<b>Baud-rate generator</b><br>PCLK ÷ BRR → baud tick / 16× sample clock'), 'blue', 10, parent=u)
+    p.edge(clk, baud, 'PCLK', C['dark'], 2)
+    # RX path
+    p.text(270, 562, 420, 24, L('<b>受信経路 RX path</b>（ピン → CPU）', '<b>RX path</b> (pin → CPU)'), 12, False, C['rx'], parent=u)
+    yb = 590
+    rxd = p.box(1080, yb, 210, yh, L('<b>入力同期 ＋ スタート検出</b><br>2 段 FF で同期、16× オーバーサンプル、<br>中央 3 点の多数決', '<b>Input sync + start detect</b><br>2-flop synchroniser, 16× oversampling,<br>majority vote of 3 middle samples'), 'cyan', 10, parent=u)
+    rxc = p.box(770, yb, 250, yh, L('<b>RX シフトレジスタ</b><br>1 ビットずつ組み立て（デシリアライザ）<br>パリティ・ストップビット検査', '<b>RX shift register</b><br>deserializer, 1 bit at a time<br>parity and stop-bit check'), 'cyan', 10, parent=u)
+    rxb = p.box(520, yb, 190, yh, L('<b>RX FIFO</b><br>n バイトのキュー<br>', '<b>RX FIFO</b><br>n-byte queue<br>'), 'cyan', 10, parent=u)
+    rxa = p.box(270, yb, 190, yh, L('<b>RDR</b><br>受信データ<br>読出ポート', '<b>RDR</b><br>received data<br>read port'), 'cyan', 10, parent=u)
+    p.edge(rxd, rxc, '', C['rx'], 3)
+    p.edge(rxc, rxb, '', C['rx'], 3)
+    p.edge(rxb, rxa, '', C['rx'], 3)
+    p.edge(baud, rxc, '', C['dark'], 2, style='exitX=0.5;exitY=1;entryX=0.5;entryY=0;')
+    p.edge(baud, txc, '', C['dark'], 2, style='exitX=0.5;exitY=0;entryX=0.5;entryY=1;')
+    p.edge(baud, rxd, '16×', C['dark'], 2, points=[(1185, 522)], style='exitX=1;exitY=0.5;entryX=0.5;entryY=0;')
+    p.box(520, 688, 92, 24, 'RXNE', 'yel', 9, parent=u)
+    p.box(618, 688, 92, 24, L('OE 溢れ', 'OE overrun'), 'red', 9, parent=u)
+    p.box(770, 688, 250, 24, L('FE フレーム ／ PE パリティ ／ NE ノイズ', 'FE framing / PE parity / NE noise'), 'red', 9, parent=u)
+    # interrupt logic
+    irq = p.box(250, 760, 1150, 90, L('<b>フラグ・割り込み・DMA 要求ロジック</b><br>各フラグ ∧ INT EN の許可ビット → OR → UART 割り込み線（NVIC へ）。TXE / RXNE は DMA 要求にも使える。<br>黄＝状態フラグ、赤＝エラーフラグ（読み出しやクリア方法はメーカーごとに異なる）。',
+                                      '<b>Flag / interrupt / DMA-request logic</b><br>each flag ∧ its INT EN bit → OR → UART IRQ line (to the NVIC). TXE / RXNE can also raise DMA requests.<br>Yellow = status flags, red = error flags (how they are read / cleared differs per vendor).'),
+                'yel', 10, parent=u)
+    # CPU edges
+    p.edge(cpu, reg, L('設定', 'configure'), C['dark'], 2, both=True, points=None, style='exitX=1;exitY=0.15;entryX=0;entryY=0.5;')
+    p.line(180, 405, 270, 405, L('書込', 'write'), C['tx'], 3)
+    p.line(270, 635, 180, 635, L('読出', 'read'), C['rx'], 3)
+    p.edge(irq, cpu, 'IRQ / DMA', C['dir'], 3, points=[(105, 805)], style='exitX=0;exitY=0.5;entryX=0.5;entryY=1;')
+    # pins
+    g = p.group(1470, 300, 190, 420, L('GPIO 代替機能マルチプレクサ', 'GPIO alt-function mux'), 'pc', 11)
+    txp = p.box(1485, 380, 160, 50, L('<b>TX ピン</b><br>ACT_TX', '<b>TX pin</b><br>ACT_TX'), 'ls', 10, parent=g)
+    rxp = p.box(1485, 610, 160, 50, L('<b>RX ピン</b><br>ACT_RX', '<b>RX pin</b><br>ACT_RX'), 'cyan', 10, parent=g)
+    p.box(1485, 460, 160, 44, L('CTS / RTS（任意）<br>ハードウェアフロー制御', 'CTS / RTS (optional)<br>hardware flow control'), 'grey', 9, parent=g)
+    p.box(1485, 515, 160, 44, L('DE（任意）<br>RS-485 ドライバ許可', 'DE (optional)<br>RS-485 driver enable'), 'grey', 9, parent=g)
+    p.edge(txd, txp, '', C['tx'], 3)
+    p.edge(rxp, rxd, '', C['rx'], 3)
+    p.text(1440, 735, 240, 80, L('→ レベルシフタ → 三態バッファ → DATA 線<br>本プロジェクトの DIR は DE ではなく<br>ファームが制御する別の GPIO', '→ level shifter → tri-state buffer → DATA wire<br>In this project DIR is a separate GPIO<br>driven by firmware, not the DE pin'), 10, False, '#555', valign='top')
+    # frame strip
+    p.text(30, 900, 700, 24, L('<b>線上の 1 フレーム（8N1）</b>', '<b>One frame on the wire (8N1)</b>'), 13, False, '#1f3a5f')
+    x = 30
+    for t, st, w in [('idle', 'grey', 56), (L('開始 0', 'start 0'), 'red', 70)] + [('D%d' % i, 'ls', 52) for i in range(8)] + [('P', 'fillColor=#ffffff;strokeColor=#999999;dashed=1', 40), (L('停止 1', 'stop 1'), 'mcu', 70), ('idle', 'grey', 56)]:
+        p.box(x, 935, w, 40, t, st, 10, shape='rounded=0;')
+        x += w
+    p.text(30, 980, 860, 40, L('データは LSB 先頭。P はパリティ（8N1 では無し）。57,600 bps なら 1 ビット ≈ 17.4 µs、1 バイト（10 ビット）≈ 174 µs。app.py の uart_bits() は同じ 10 ビットを返します。',
+                               'Data is sent LSB first. P is the optional parity bit (absent in 8N1). At 57,600 bps one bit ≈ 17.4 µs and one byte (10 bits) ≈ 174 µs. uart_bits() in app.py returns the same 10 bits.'),
+           10, False, '#444', valign='top')
+    p.box(30, 1040, 860, 110, L(
+        '<b>「FIFO 空」≠「送信完了」</b><br>TX FIFO が空（TXE）になった時点で、最後のバイトは<b>まだ TX シフトレジスタの中</b>で送出中です。'
+        'TC は FIFO とシフトレジスタが両方空になり、最後の停止ビットが出終わって初めて立ちます。半二重で DIR を切り替えるタイミングは TC で決めます（firmware/main.c の [06]）。',
+        '<b>"FIFO empty" ≠ "transmission complete"</b><br>When the TX FIFO is empty (TXE) the last byte is <b>still inside the TX shift register</b> being sent. '
+        'TC is set only after both the FIFO and the shift register are empty and the last stop bit has left the pin. Half-duplex DIR switching must wait for TC (firmware/main.c [06]).'),
+        'yel', 11, align='left', valign='top', extra='spacingLeft=10;spacingTop=8;')
+    p.table(930, 900, [330, 400], 36, [
+        [L('本プロジェクトの board.h API', "This project's board.h API"), L('UART ハードウェア上の対応', 'What it maps to in the UART')],
+        ['UART_GET_RX_EMPTY(uart)', L('RX FIFO が空（RXNE = 0）', 'RX FIFO empty (RXNE = 0)')],
+        ['UART_READ(uart)', L('RDR を読む ＝ RX FIFO から 1 バイト取り出す', 'read RDR = pop one byte from the RX FIFO')],
+        ['UART_IS_TX_FULL(uart)', L('TX FIFO が満杯（TXE = 0）', 'TX FIFO full (TXE = 0)')],
+        ['UART_WRITE(uart, b)', L('TDR に書く ＝ TX FIFO に 1 バイト積む', 'write TDR = push one byte into the TX FIFO')],
+        ['uart_tx_complete(uart)', L('TC フラグ（FIFO・シフトレジスタ空＋停止ビット完了）', 'TC flag (FIFO + shift reg empty + stop bit done)')],
+    ], size=10)
+    p.text(930, 1140, 730, 50, L('GUI の「MCU 内部」レンズ（draw_mcu）が描く FIFO（16 マス）・シフトレジスタ・SRAM は、この構造を教育用に簡略化したものです。',
+                                 'The "MCU internals" lens in the GUI (draw_mcu) shows the FIFO (16 slots), shift register and SRAM as a simplified version of this structure.'),
+           10, False, '#555', valign='top')
+    return p
+
+
+# ======================================================================
 def main():
     global LANG
     builders = [page_hardware, page_software, page_packet, page_registers, page_reply, page_sequence,
-                page_firmware, page_dir, page_flow, page_faults, page_ui, page_runtime]
+                page_firmware, page_dir, page_flow, page_faults, page_ui, page_runtime, page_uart]
     for lang in ('ja', 'en'):
         LANG = lang
         pages = [b() for b in builders]
